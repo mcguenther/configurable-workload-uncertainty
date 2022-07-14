@@ -436,9 +436,14 @@ def main():
     no_streamlit = len(sys.argv) > 1
 
     st.sidebar.write("# Training Data")
-    data_path_parent = "/home/jdorn/code/workload-performance/resources/performance/"
+
+    sub_folder_name = "training-data/"
+
+    dirname = os.path.dirname(__file__)
+    data_path_parent = os.path.join(dirname, sub_folder_name)
     avail_sws = [s.replace(".csv", "") for s in list(os.listdir(data_path_parent))]
     sws = st.sidebar.selectbox("Software System", avail_sws, index=1)
+
     data_path = os.path.join(data_path_parent, f"{sws}.csv")
     sys_df = pd.read_csv(data_path)
     cleared_sys_df = util.remove_multicollinearity(sys_df)
