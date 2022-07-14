@@ -14,4 +14,3 @@ numpyro~=0.9.1
 jax~=0.3.2
 arviz~=0.12.1
 bokeh~=2.4.1
-git+https://github.com/smba/pycosa-toolbox.git@main
