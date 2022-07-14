@@ -28,6 +28,8 @@ import numpyro
 # from eda4uncert.grammar import BaseGrammar
 import math
 import os
+import bokeh
+from sklearn.dummy import DummyRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.neural_network import MLPRegressor
 from sklearn.linear_model import LinearRegression, RidgeCV, ElasticNetCV, LassoCV
@@ -40,14 +42,13 @@ from joblib import Parallel, delayed
 import logging
 from copy import deepcopy
 import streamlit as st
-
 # from grammar import InfluenceModelGrammar, BaseGrammar, PairwiseGrammar
 # from sws import ConfSysData, ArtificialSystem
 from multiprocessing import Process, Queue
 import io
 from contextlib import redirect_stdout
 
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from scipy.stats import gamma
 
 numpyro.set_host_device_count(3)
@@ -227,7 +228,7 @@ class PyroMCMCWorkloadRegressor(PyroMCMCRegressor):
         progress_bar = False
         mcmc = npMCMC(nuts_kernel, num_samples=self.mcmc_samples,
                       num_warmup=self.mcmc_tune, progress_bar=progress_bar, num_chains=num_chains, )
-        rng_key = random.PRNGKey(42)
+        rng_key = random.PRNGKey(0)
         mcmc.run(rng_key, X)
         mcmc.print_summary()
         self.mcmc_fitted = mcmc
@@ -269,22 +270,26 @@ class PyroMCMCWorkloadRegressor(PyroMCMCRegressor):
     # @staticmethod
     def conditionable_model(self, data):
         num_opts = data.shape[1]
+        joint_coef_stdev = np.mean(np.abs(self.prior_coef_stdvs) * 2)
         with numpyro.plate("coefs_vectorized", num_opts):
-            joint_coef_stdev = np.mean(np.abs(self.prior_coef_stdvs) * 2)
             rnd_influences = numpyro.sample("coefs", npdist.Normal(0, joint_coef_stdev), )
         mat_infl = rnd_influences.reshape(-1, 1)
         product = jnp.matmul(data, mat_infl).reshape(-1)
-        base = numpyro.sample("base", npdist.Gamma(self.prior_root_mean, self.prior_root_std))
+        base = numpyro.sample("base", npdist.HalfNormal(self.prior_root_std * 2))
         result = product + base
         # error_var = numpyro.sample("error", npdist.Gamma(self.abs_err_gamma_alpha/5, self.abs_err_gamma_beta))
-        error_var = numpyro.sample("error", npdist.Gamma(1.0, 0.9))
+        # error_var = numpyro.sample("error", npdist.Gamma(1.0, 2.9))
+        error_var = numpyro.sample("error", npdist.Exponential(1.5))
         # relative_error_var = numpyro.sample("error_rel", npdist.Gamma(self.rel_err_gamma_alpha/5, self.rel_err_gamma_beta))
-        relative_error_var = numpyro.sample("error_rel", npdist.Gamma(1.0, 0.01))
+        # relative_error_var = numpyro.sample("error_rel", npdist.Gamma(1.0, 0.01))
+
+        relative_error_var = numpyro.sample("error_rel", npdist.Laplace(0, 0.001))
         result = result + (relative_error_var * result)
+
         # error_var = numpyro.sample("error", npdist.HalfNormal(0.01) )
         with numpyro.plate("data_vectorized", len(data)) as ind:
             obs = numpyro.sample("measurements", npdist.Normal(result, error_var))
-            return obs
+        return obs
 
     def get_tuples(self, feature_names):
         tuples = []
@@ -350,12 +355,12 @@ class RelativeScalingWorkloadRegressor(PyroMCMCWorkloadRegressor):
         joint_coef_stdev = np.mean(np.abs(self.prior_coef_stdvs) * 2)
         num_opts = data.shape[1]
         # wl_scale = numpyro.sample("workload-scaling", npdist.Normal(0, joint_coef_stdev))
-        wl_scale = numpyro.sample("workload-scaling", npdist.Normal(1.0, 5))
+        wl_scale = numpyro.sample("workload-scaling", npdist.Normal(1.0, 50))
         with numpyro.plate("coefs_vectorized", num_opts):
             rnd_influences = numpyro.sample("coefs", npdist.Normal(0, joint_coef_stdev), )
         mat_infl = rnd_influences.reshape(-1, 1)
         product = jnp.matmul(data, mat_infl).reshape(-1)
-        base = numpyro.sample("base", npdist.Gamma(self.prior_root_mean, self.prior_root_std))
+        base = numpyro.sample("base", npdist.HalfNormal(self.prior_root_std * 2))
         result = product + base
 
         wl_col = data[:, -1]
@@ -363,10 +368,12 @@ class RelativeScalingWorkloadRegressor(PyroMCMCWorkloadRegressor):
         result = result * relative_workload_diff
 
         # error_var = numpyro.sample("error", npdist.Gamma(self.abs_err_gamma_alpha/5, self.abs_err_gamma_beta))
-        error_var = numpyro.sample("error", npdist.Gamma(1.0, 0.9))
+        error_var = numpyro.sample("error", npdist.Exponential(1.5))
         # relative_error_var = numpyro.sample("error_rel", npdist.Gamma(self.rel_err_gamma_alpha/5, self.rel_err_gamma_beta))
-        relative_error_var = numpyro.sample("error_rel", npdist.Gamma(1.0, 0.01))
+
+        relative_error_var = numpyro.sample("error_rel", npdist.Laplace(0, 0.01))
         result = result + (relative_error_var * result)
+
         # error_var = numpyro.sample("error", npdist.HalfNormal(0.01) )
         with numpyro.plate("data_vectorized", len(data)) as ind:
             obs = numpyro.sample("measurements", npdist.Normal(result, error_var))
@@ -428,7 +435,7 @@ def st_create_scores(sk_model, x, y):
 def main():
     no_streamlit = len(sys.argv) > 1
 
-    data_path = "/home/jdorn/code/workload-performance/resources/performance/h2.csv"
+    st.sidebar.write("# Training Data")
     data_path_parent = "/home/jdorn/code/workload-performance/resources/performance/"
     avail_sws = [s.replace(".csv", "") for s in list(os.listdir(data_path_parent))]
     sws = st.sidebar.selectbox("Software System", avail_sws, index=1)
@@ -446,20 +453,41 @@ def main():
     workloads = list(cleared_sys_df["workload-name"].unique())
     chosen_wl = st.sidebar.selectbox("Workload Type", workloads, index=0)
     tpcc_df = cleared_sys_df[cleared_sys_df["workload-name"].str.contains(chosen_wl)]
+    train_size_fraq = st.sidebar.slider("Training set size ratio", 0.05, 0.95, 0.35, step=0.05)
     print(tpcc_df.head())
     tpcc_df = tpcc_df.drop(columns=["workload", "workload-name", "config"])
     wl_levels = tpcc_df["workload-scale"].unique()
-    st.sidebar.write("# Workload Levels")
-    st.sidebar.write(wl_levels)
+
     nfp = chosen_nfp
-    train_df, test_df = sklearn.model_selection.train_test_split(tpcc_df, train_size=0.25)
+    train_df, test_df = sklearn.model_selection.train_test_split(tpcc_df, train_size=train_size_fraq)
     y_train = train_df[nfp].to_numpy()
     y_test = test_df[nfp].to_numpy()
     train_df_without_nfp = train_df.drop(columns=[nfp])
     x_train = train_df_without_nfp.astype(int).to_numpy()
     x_test = test_df.drop(columns=[nfp]).astype(int).to_numpy()
+
+    ## Models to fit
+    st.sidebar.write("# Models")
+    models=["WL-Ignorant MCMC", "Linear MCMC", "RelWL MCMC Model"]
+    chosen_models = st.sidebar.multiselect("MCMC Models (expensive)", options=models, default=models)
+
+    ## MCMC samples
+    st.sidebar.write("# Training Parameters")
+    mcmc_tune = st.sidebar.slider("Tuning MCMC samples", 250, 4000, value=500, step=250)
+    mcmc_samples = st.sidebar.slider("Posterior MCMC samples", 250, 4000, value=250, step=250)
+    num_chains = st.sidebar.slider("Parallel MCMC Chains", 1, 6, value=3, step=1)
+
+    ## Scaling
+    scaler = MinMaxScaler()
+    x_train[:,-1] = scaler.fit_transform(np.atleast_2d(x_train[:,-1]).T)[:,-1].ravel()
+    x_test[:,-1] = scaler.transform(np.atleast_2d(x_test[:,-1]).T).ravel()
+
+    x_train_no_wl = x_train[:, :-1]
+    x_test_no_wl = x_test[:, :-1]
     features = list(list(train_df_without_nfp.columns))
     st.title(f"{sws} on workload {chosen_wl}")
+    st.write("Workload Levels")
+    st.write(wl_levels)
     # st.write("## ")
     with st.expander("Training Data"):
         st.write(train_df)
@@ -470,19 +498,31 @@ def main():
         with container_own_models:
             # c1, c2, c3 = st.columns(3)
             # with c1:
-            num_chains = 3
-            st.write("## Relative Workload Influence MCMC")
-            with st.spinner("Fitting RelWL MCMC Model"):
-                mcmc_samples = 500
-                mcmc_tune = 500
-                rel_wl_mcmc_reg = RelativeScalingWorkloadRegressor(mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
-                rel_wl_mcmc_reg.fit(x_train, y_train, num_chains)
-            plot_mcmc_scores(features, rel_wl_mcmc_reg, num_chains, x_test, y_test)
-            st.write("## Linear MCMC")
-            with st.spinner("Fitting MCMC Model"):
-                mcmc_reg = PyroMCMCWorkloadRegressor(mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
-                mcmc_reg.fit(x_train, y_train, num_chains)
-            plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, y_test)
+            # num_chains = 3
+            # mcmc_samples = 500
+            # mcmc_tune = 750
+            if "WL-Ignorant MCMC" in chosen_models:
+                st.write("## WL-Ignorant MCMC")
+                st.write("This model does not get the workload feature.")
+                with st.spinner("Fitting MCMC"):
+                    mcmc_reg = PyroMCMCWorkloadRegressor(mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
+                    mcmc_reg.fit(x_train_no_wl, y_train, num_chains)
+                plot_mcmc_scores(features[:-1], mcmc_reg, num_chains, x_test_no_wl, y_test)
+            if "Linear MCMC" in chosen_models:
+                st.write("## Linear MCMC")
+                st.write("This model gets the workload feature but treats it as a regular option.")
+                with st.spinner("Fitting MCMC Model"):
+                    mcmc_reg = PyroMCMCWorkloadRegressor(mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
+                    mcmc_reg.fit(x_train, y_train, num_chains)
+                plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, y_test)
+            if "RelWL MCMC Model" in chosen_models:
+                st.write("## RelWL MCMC Model")
+                st.write("This model gets the workload feature and learns a relative transfer of computed performance values between workloads. "
+                         "Hence, the model does not differenciate between different option influence.")
+                with st.spinner("Fitting RelWL MCMC Model"):
+                    rel_wl_mcmc_reg = RelativeScalingWorkloadRegressor(mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
+                    rel_wl_mcmc_reg.fit(x_train, y_train, num_chains)
+                plot_mcmc_scores(features, rel_wl_mcmc_reg, num_chains, x_test, y_test)
 
         with container_reference_models:
             # c1, c2, c3 = st.columns(3)
@@ -502,16 +542,21 @@ def main():
                 st_create_scores(rf_reg, x_test, y_test)
 
             st.header("Baseline Regs WITHOUT WL FEATURE!")
+            st.write("## Dummy Mean Reg")
+            with st.spinner("Fitting Dummy Regression"):
+                dummy_regr = DummyRegressor(strategy="mean")
+                dummy_regr.fit(x_train, y_train)
+                st_create_scores(dummy_regr, x_test, y_test)
             st.write("## Linear Reg")
             with st.spinner("Fitting Linear Regression"):
                 lin_reg = LinearRegression()
-                lin_reg.fit(x_train[:, :-1], y_train)
-                st_create_scores(lin_reg, x_test[:, :-1], y_test)
+                lin_reg.fit(x_train_no_wl, y_train)
+                st_create_scores(lin_reg, x_test_no_wl, y_test)
             st.write("## RF ")
             with st.spinner("Fitting RF"):
                 rf_reg = RandomForestRegressor()
-                rf_reg.fit(x_train[:, :-1], y_train)
-                st_create_scores(rf_reg, x_test[:, :-1], y_test)
+                rf_reg.fit(x_train_no_wl, y_train)
+                st_create_scores(rf_reg, x_test_no_wl, y_test)
             # with c3:
             # st.header("ANN for reference")
             # st.write("## ANN")
@@ -535,18 +580,25 @@ def plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, y_test):
             # "constant_data": {"x": xdata}
         }
         az_data = az.from_numpyro(mcmc_reg.mcmc_fitted, num_chains=num_chains,  **idata_kwargs)
-        az.plot_trace(az_data, compact=True, var_names=("coefs"))
+        az.plot_trace(az_data, )#compact=True, var_names=("base", "coefs"))
         fig = plt.gcf()
+        plt.tight_layout()
         st.pyplot(fig)
-        az.plot_density(az_data, hdi_prob=0.99)
-        fig = plt.gcf()
-        st.pyplot(fig)
-        # plt.show()
+
+        # az.plot_posterior(az_data, hdi_prob=0.95, point_estimate="mode",multimodal=True, )
+        # fig = plt.gcf()
+        # plt.tight_layout()
+        # st.pyplot(fig)
+
+
         az.plot_forest(az_data)
         fig = plt.gcf()
+        plt.tight_layout()
         st.pyplot(fig)
-        # plt.show()
     with st.spinner("Scoring"):
+        divergences = mcmc_reg.mcmc_fitted.get_extra_fields()["diverging"].sum()
+        if divergences:
+            st.error(f"Encountered {divergences} divergences! This means that the sampling did not find the posterior reliably and we should consider a different model structure.")
         st_create_scores(mcmc_reg, x_test, y_test)
 
 
