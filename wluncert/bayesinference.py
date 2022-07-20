@@ -2,12 +2,9 @@ import sys
 import time
 from matplotlib import pyplot as plt
 import torch
-import torch.distributions.constraints as constraints
 import pyro
 import pyro.util
 import pyro.optim
-from pyro.optim import Adam, ClippedAdam
-from pyro.infer import SVI, Trace_ELBO
 import pyro.distributions as dist
 from pyro.infer import MCMC, NUTS, Predictive
 from scipy.stats import norm
@@ -28,31 +25,26 @@ import numpyro
 # from eda4uncert.grammar import BaseGrammar
 import math
 import os
-import bokeh
 from sklearn.dummy import DummyRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.neural_network import MLPRegressor
-from sklearn.linear_model import LinearRegression, RidgeCV, ElasticNetCV, LassoCV
+from sklearn.linear_model import LinearRegression, RidgeCV, ElasticNetCV, Lasso, Ridge, LassoCV
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import r2_score
 import numpy as np
 import pandas as pd
-# from fuzzingbook.Grammars import Grammar
-from joblib import Parallel, delayed
-import logging
-from copy import deepcopy
+
 import streamlit as st
-# from grammar import InfluenceModelGrammar, BaseGrammar, PairwiseGrammar
-# from sws import ConfSysData, ArtificialSystem
-from multiprocessing import Process, Queue
 import io
 from contextlib import redirect_stdout
 
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler, PolynomialFeatures
 from scipy.stats import gamma
-
+from sklearn.pipeline import make_pipeline
 numpyro.set_host_device_count(3)
 import copy
+
+st.set_page_config(page_title='Workload Uncertainty', page_icon="🪬")
 
 
 class PyroRegressor(ABC, BaseEstimator, RegressorMixin):
@@ -174,7 +166,7 @@ def weighted_avg_and_std(values, weights, gamma=1):
 
 
 class PyroMCMCWorkloadRegressor(PyroMCMCRegressor):
-
+    @st.cache
     def get_prior_weighted_normal(self, x, y, gamma=1, stddev_multiplier=10, n_steps=30):
         print("Getting priors from lin regs.")
         reg_dict_final, err_dict = self.get_regression_spectrum(x, y, n_steps=n_steps)
@@ -430,16 +422,31 @@ def st_create_scores(sk_model, x, y):
     mape_rounded = round(mape, 1)
     with c2:
         st.metric(label="MAPE", value=f"{mape_rounded} %")
+    return mape
+
+
+def update_metric(st_empty, title, my_mape, ref_mape=None, ):
+    st_empty.empty()
+    st_empty.write(f"{title}")
+    mape_rounded = round(my_mape, 1)
+    diff_kw = {}
+    if ref_mape:
+        diff = round(my_mape - ref_mape)
+        diff_kw = {
+            "delta": f"{diff} p.p.",
+            "delta_color": "inverse"
+        }
+    st_empty.metric(f"MAPE {title}", f"{mape_rounded} %", **diff_kw)
 
 
 def hash_pandas(df):
     hash(tuple(df.columns))
 
 
-@st.cache(hash_funcs={pd.DataFrame: hash_pandas})
+@st.cache
 def get_xz_df(cleared_sys_df, cluster_partition=5):
     uiq_df = cleared_sys_df.loc[cleared_sys_df["workload"].str.contains("uiq")]
-    uiq_df["workload-scale"] = None
+    # uiq_df["workload-scale"] = None
     uiq_df.loc[uiq_df["workload"] == "uiq2-4.bin", "workload-scale"] = 4
     uiq_df.loc[uiq_df["workload"] == "uiq2-16.bin", "workload-scale"] = 16
     uiq_df.loc[uiq_df["workload"] == "uiq-32.bin", "workload-scale"] = 32
@@ -459,10 +466,14 @@ def get_xz_df(cleared_sys_df, cluster_partition=5):
     return uiq_df
 
 
+@st.cache
+def remove_multicollinearity(df):
+    return util.remove_multicollinearity(df)
+
+
 def main():
     no_streamlit = len(sys.argv) > 1
-
-    st.sidebar.write("# Training Data")
+    st.sidebar.write("# 💾 Training Data")
 
     sub_folder_name = "training-data/"
 
@@ -481,7 +492,8 @@ def main():
 
     data_path = os.path.join(data_path_parent, f"{sws}.csv")
     sys_df = pd.read_csv(data_path)
-    cleared_sys_df = util.remove_multicollinearity(sys_df)
+
+    cleared_sys_df = remove_multicollinearity(sys_df)
 
     # wl_filter = "tpcc"
     if sws == "h2":
@@ -494,6 +506,8 @@ def main():
     elif sws == "measurements_xz-5.2.0":
         cleared_sys_df = get_xz_df(cleared_sys_df)
 
+    workloads = list(cleared_sys_df["workload-name"].unique())
+    chosen_wl = st.sidebar.selectbox("Workload Type", workloads, index=0)
     # read workloads and NFPs
     cols = cleared_sys_df.columns
     workload_idx = list(cols).index("workload")
@@ -503,9 +517,6 @@ def main():
     nfps = [nfp for nfp in nfp_candidates if nfp in typical_nfsp]
     chosen_nfp = st.sidebar.selectbox("NFP", nfps, index=0)
 
-    workloads = list(cleared_sys_df["workload-name"].unique())
-
-    chosen_wl = st.sidebar.selectbox("Workload Type", workloads, index=0)
     data_df = cleared_sys_df[cleared_sys_df["workload-name"].str.contains(chosen_wl)]
     train_size_fraq = st.sidebar.slider("Training set size ratio", 0.05, 0.95, 0.15, step=0.05)
     print(data_df.head(20))
@@ -522,7 +533,7 @@ def main():
 
     ## Models to fit
     st.sidebar.write("# Models")
-    models = ["WL-Agnostic MCMC", "Linear MCMC", "RelWL MCMC Model"]
+    models = ["📊 WL-Agnostic MCMC", "📊 Linear MCMC", "📊 RelWL MCMC Model"]
     chosen_models = st.sidebar.multiselect("MCMC Models (expensive)", options=models, default=models)
 
     ## MCMC samples
@@ -539,58 +550,105 @@ def main():
     x_train_no_wl = x_train[:, :-1]
     x_test_no_wl = x_test[:, :-1]
     features = list(list(train_df_without_nfp.columns))
-    st.title(f"{sws} on workload {chosen_wl}")
+    st.title(f"🪬 Workload learning for {sws} on workload {chosen_wl}")
     st.write("Workload Levels")
-    st.write(wl_levels)
+    st.write(sorted(list(wl_levels)))
     # st.write("## ")
     with st.expander(f"Data [{len(data_df)} samples]"):
         st.write(data_df.head())
     with st.expander(f"Training Data [{len(train_df_without_nfp)} samples]"):
         st.write(train_df_without_nfp.head())
-    if st.sidebar.button("Let's gooooooo") or no_streamlit:
+    if st.sidebar.button("Let's gooooooo 🔥") or no_streamlit:
+        container_summary = st.container()
         container_reference_models = st.container()
         container_own_models = st.container()
 
+        with container_summary:
+            st.header("➕ Summary - Without WL Feature")
+            c1, c2, c3, c4, c5= st.columns(5)
+            metric_no_wl_dummy = c1.empty()
+            metric_no_wl_lin_reg = c2.empty()
+            metric_no_wl_lin_reg_pairwise = c3.empty()
+            metric_no_wl_RF = c4.empty()
+            metric_no_wl_MCMC = c5.empty()
+            st.write("Diffs compared to linear regression")
+            st.header("➕ Summary - WITH WL Feature")
+
+            c1, c2, c3, c4, c5 = st.columns(5)
+            metric_with_wl_lin_reg = c1.empty()
+            metric_with_wl_lin_reg_pairwise = c2.empty()
+            metric_with_wl_RF = c3.empty()
+            metric_with_wl_MCMC = c4.empty()
+            metric_with_wl_MCMC_rel = c5.empty()
+            # metric_with_wl_ = c6.empty()
+            st.write("Diffs compared to linear regression")
+
         with container_reference_models:
-            # c1, c2, c3 = st.columns(3)
-            # with c1:
+            with st.expander(f"〰️ Detailed Baseline Regressions"):
+                st.header("Baseline Regs WITHOUT WL FEATURE!")
+                st.write("## 🤤 Dummy Mean Reg")
+                with st.spinner("Fitting Dummy Regression"):
+                    dummy_regr = DummyRegressor(strategy="mean")
+                    dummy_regr.fit(x_train, y_train)
+                    mape_dummy = st_create_scores(dummy_regr, x_test, y_test)
+                    update_metric(metric_no_wl_dummy, "🤤 Mean", mape_dummy)
 
-            st.header("Baseline Regs with workload feature")
-            st.write("## Linear Reg")
-            with st.spinner("Fitting Linear Regression"):
-                lin_reg = LinearRegression()
-                lin_reg.fit(x_train, y_train)
-                st_create_scores(lin_reg, x_test, y_test)
-            # with c2:
-            st.write("## RF")
-            with st.spinner("Fitting RF"):
-                rf_reg = RandomForestRegressor()
-                rf_reg.fit(x_train, y_train)
-                st_create_scores(rf_reg, x_test, y_test)
+                st.write("## 📈 Linear Reg")
+                with st.spinner("Fitting Linear Regression"):
+                    lin_reg = LinearRegression()
+                    lin_reg.fit(x_train_no_wl, y_train)
+                    mape_lin_reg_no_workload_ft = st_create_scores(lin_reg, x_test_no_wl, y_test)
+                    update_metric(metric_no_wl_lin_reg, "📈 Linear Reg", mape_lin_reg_no_workload_ft)
 
-            st.header("Baseline Regs WITHOUT WL FEATURE!")
-            st.write("## Dummy Mean Reg")
-            with st.spinner("Fitting Dummy Regression"):
-                dummy_regr = DummyRegressor(strategy="mean")
-                dummy_regr.fit(x_train, y_train)
-                st_create_scores(dummy_regr, x_test, y_test)
-            st.write("## Linear Reg")
-            with st.spinner("Fitting Linear Regression"):
-                lin_reg = LinearRegression()
-                lin_reg.fit(x_train_no_wl, y_train)
-                st_create_scores(lin_reg, x_test_no_wl, y_test)
-            st.write("## RF ")
-            with st.spinner("Fitting RF"):
-                rf_reg = RandomForestRegressor()
-                rf_reg.fit(x_train_no_wl, y_train)
-                st_create_scores(rf_reg, x_test_no_wl, y_test)
-            # with c3:
-            # st.header("ANN for reference")
-            # st.write("## ANN")
-            # with st.spinner("Fitting MLP"):
-            #     mlp_reg = MLPRegressor(max_iter=2500)
-            #     mlp_reg.fit(x_train, y_train)
-            #     st_create_scores(mlp_reg, x_test, y_test)
+                st.write("## 💑 Pairwise Linear Reg")
+                with st.spinner("Fitting Pairwise Linear Regression"):
+                    poly = PolynomialFeatures(degree=2, include_bias=False, interaction_only=True)
+                    lin_reg = Lasso()
+                    scaler = MinMaxScaler()
+                    polyreg = make_pipeline(scaler, poly, lin_reg)
+                    polyreg.fit(x_train_no_wl, y_train)
+                    mape_pariwise_lin_reg_no_workload_ft = st_create_scores(polyreg, x_test_no_wl, y_test)
+                    update_metric(metric_no_wl_lin_reg_pairwise, "💑 Pairwise Lin Reg",
+                                  mape_pariwise_lin_reg_no_workload_ft, mape_lin_reg_no_workload_ft)
+
+                st.write("## 🌲 RF")
+                with st.spinner("Fitting RF"):
+                    rf_reg = RandomForestRegressor()
+                    rf_reg.fit(x_train_no_wl, y_train)
+                    mape_RF_reg_no_workload_ft = st_create_scores(rf_reg, x_test_no_wl, y_test)
+                    update_metric(metric_no_wl_RF, "🌲 RF", mape_RF_reg_no_workload_ft, mape_lin_reg_no_workload_ft)
+
+
+
+                st.header("Baseline Regs with workload feature")
+                st.write("## 📈 Linear Reg")
+                with st.spinner("📈 Fitting Linear Regression"):
+                    lin_reg = LinearRegression()
+                    lin_reg.fit(x_train, y_train)
+                    mape_lin_reg_with_workload_ft = st_create_scores(lin_reg, x_test, y_test)
+                    update_metric(metric_with_wl_lin_reg, "📈 LinReg", mape_lin_reg_with_workload_ft, )
+
+                st.write("## 💑 Pairwise Linear Reg")
+                with st.spinner("Fitting Pairwise Linear Regression"):
+                    poly = PolynomialFeatures(degree=2, include_bias=False, interaction_only=True)
+                    lin_reg = Lasso()
+                    scaler = MinMaxScaler()
+                    polyreg = make_pipeline(scaler, poly, lin_reg)
+                    polyreg.fit(x_train, y_train)
+                    mape_pariwise_lin_reg_with_workload_ft = st_create_scores(polyreg, x_test, y_test)
+                    update_metric(metric_with_wl_lin_reg_pairwise, "💑 Pairwise Lin Reg", mape_pariwise_lin_reg_with_workload_ft, mape_lin_reg_with_workload_ft)
+                # with c2:
+                st.write("## 🌲 RF")
+                with st.spinner("Fitting RF"):
+                    rf_reg = RandomForestRegressor()
+                    rf_reg.fit(x_train, y_train)
+                    st_create_scores(rf_reg, x_test, y_test)
+                    mape_RF_with_workload_ft = st_create_scores(rf_reg, x_test, y_test)
+                    update_metric(metric_with_wl_RF, "🌲 RF", mape_RF_with_workload_ft, mape_lin_reg_with_workload_ft)
+
+
+
+
 
         with container_own_models:
             # c1, c2, c3 = st.columns(3)
@@ -598,21 +656,23 @@ def main():
             # num_chains = 3
             # mcmc_samples = 500
             # mcmc_tune = 750
-            if "WL-Agnostic MCMC" in chosen_models:
+            if "📊 WL-Agnostic MCMC" in chosen_models:
                 st.write("## WL-Agnostic MCMC")
                 st.write("This model does not get the workload feature.")
                 with st.spinner("Fitting MCMC"):
                     mcmc_reg = PyroMCMCWorkloadRegressor(mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
                     mcmc_reg.fit(x_train_no_wl, y_train, num_chains)
-                plot_mcmc_scores(features[:-1], mcmc_reg, num_chains, x_test_no_wl, y_test)
-            if "Linear MCMC" in chosen_models:
+                mape_mcmc_agnostic = plot_mcmc_scores(features[:-1], mcmc_reg, num_chains, x_test_no_wl, y_test)
+                update_metric(metric_no_wl_MCMC, "📊 MCMC Agn", mape_mcmc_agnostic, mape_lin_reg_no_workload_ft)
+            if "📊 Linear MCMC" in chosen_models:
                 st.write("## Linear MCMC")
                 st.write("This model gets the workload feature but treats it as a regular option.")
                 with st.spinner("Fitting MCMC Model"):
                     mcmc_reg = PyroMCMCWorkloadRegressor(mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
                     mcmc_reg.fit(x_train, y_train, num_chains)
-                plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, y_test)
-            if "RelWL MCMC Model" in chosen_models:
+                mape_mcmc_with_wl = plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, y_test)
+                update_metric(metric_with_wl_MCMC, "📊 MCMC Lin", mape_mcmc_with_wl, mape_lin_reg_with_workload_ft)
+            if "📊 RelWL MCMC Model" in chosen_models:
                 st.write("## RelWL MCMC Model")
                 st.write(
                     "This model gets the workload feature and learns a relative transfer of computed performance values between workloads. "
@@ -620,7 +680,8 @@ def main():
                 with st.spinner("Fitting RelWL MCMC Model"):
                     rel_wl_mcmc_reg = RelativeScalingWorkloadRegressor(mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
                     rel_wl_mcmc_reg.fit(x_train, y_train, num_chains)
-                plot_mcmc_scores(features, rel_wl_mcmc_reg, num_chains, x_test, y_test)
+                mape_mcmc_with_wl_rel = plot_mcmc_scores(features, rel_wl_mcmc_reg, num_chains, x_test, y_test)
+                update_metric(metric_with_wl_MCMC_rel, "📊 MCMC Rel", mape_mcmc_with_wl_rel, mape_lin_reg_with_workload_ft)
 
         st.balloons()
 
@@ -657,7 +718,7 @@ def plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, y_test):
         if divergences:
             st.error(
                 f"Encountered {divergences} divergences! This means that the sampling did not find the posterior reliably and we should consider a different model structure.")
-        st_create_scores(mcmc_reg, x_test, y_test)
+        return st_create_scores(mcmc_reg, x_test, y_test)
 
 
 def capture_output(q):
