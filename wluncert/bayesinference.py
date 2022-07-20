@@ -432,6 +432,33 @@ def st_create_scores(sk_model, x, y):
         st.metric(label="MAPE", value=f"{mape_rounded} %")
 
 
+def hash_pandas(df):
+    hash(tuple(df.columns))
+
+
+@st.cache(hash_funcs={pd.DataFrame: hash_pandas})
+def get_xz_df(cleared_sys_df, cluster_partition=5):
+    uiq_df = cleared_sys_df.loc[cleared_sys_df["workload"].str.contains("uiq")]
+    uiq_df["workload-scale"] = None
+    uiq_df.loc[uiq_df["workload"] == "uiq2-4.bin", "workload-scale"] = 4
+    uiq_df.loc[uiq_df["workload"] == "uiq2-16.bin", "workload-scale"] = 16
+    uiq_df.loc[uiq_df["workload"] == "uiq-32.bin", "workload-scale"] = 32
+    uiq_df.loc[uiq_df["workload"] == "uiq2-8.bin", "workload-scale"] = 8
+    uiq_df["workload-name"] = "uiq2"
+    uiq_df["workload"] = "uiq2"
+    # changing column order to *OPTIONS, workload, workload-scale, *NFPS
+    cols = list(uiq_df.columns)
+    config_col_idx = cols.index("config_id")
+    nfp_cols = cols[:config_col_idx]
+    nfp_cols.append("ratio")
+    wl_cols = {"workload", "workload-scale"}
+    non_nfp_cols = set(cols) - set(nfp_cols) - wl_cols
+    uiq_df = uiq_df[[*non_nfp_cols, *wl_cols, *nfp_cols]]
+    uiq_df = uiq_df[uiq_df["partition"] == cluster_partition]
+    uiq_df = uiq_df.drop(columns=["config_id", "partition"], errors='ignore')
+    return uiq_df
+
+
 def main():
     no_streamlit = len(sys.argv) > 1
 
@@ -442,38 +469,60 @@ def main():
     dirname = os.path.dirname(__file__)
     data_path_parent = os.path.join(dirname, sub_folder_name)
     avail_sws = [s.replace(".csv", "") for s in list(os.listdir(data_path_parent))]
-    sws = st.sidebar.selectbox("Software System", avail_sws, index=1)
+    only_show_working_experiments = st.sidebar.checkbox("Only show (mostly) working experiments", value=True)
+    supported_experiments = {
+        "h2": None,
+        "jump3r": None,
+        "measurements_xz-5.2.0": None
+    }
+    if only_show_working_experiments:
+        avail_sws = list(supported_experiments)
+    sws = st.sidebar.selectbox("Software System", avail_sws, index=2)
 
     data_path = os.path.join(data_path_parent, f"{sws}.csv")
     sys_df = pd.read_csv(data_path)
     cleared_sys_df = util.remove_multicollinearity(sys_df)
+
+    # wl_filter = "tpcc"
+    if sws == "h2":
+        cleared_sys_df[["workload-name", "workload-scale"]] = cleared_sys_df["workload"].str.split("-", expand=True)
+    elif sws == "jump3r":
+        mono_stereo_df = cleared_sys_df[cleared_sys_df["workload"].isin(["dual-channel.wav", "single-channel.wav"])]
+        mono_stereo_df["workload-scale"] = mono_stereo_df["workload"] == "dual-channel.wav"
+        mono_stereo_df["workload-name"] = "mono-stereo"
+        cleared_sys_df = mono_stereo_df
+    elif sws == "measurements_xz-5.2.0":
+        cleared_sys_df = get_xz_df(cleared_sys_df)
+
     # read workloads and NFPs
     cols = cleared_sys_df.columns
     workload_idx = list(cols).index("workload")
-    nfps = cols[workload_idx + 1:]
+    nfp_candidates = cols[workload_idx + 1:]
+    typical_nfsp = ["throughput", "time", "max-resident-size", 'kernel-time', 'user-time', 'max-resident-set-size',
+                    'ratio']
+    nfps = [nfp for nfp in nfp_candidates if nfp in typical_nfsp]
     chosen_nfp = st.sidebar.selectbox("NFP", nfps, index=0)
 
-    # wl_filter = "tpcc"
-    cleared_sys_df[["workload-name", "workload-scale"]] = cleared_sys_df["workload"].str.split("-", expand=True)
     workloads = list(cleared_sys_df["workload-name"].unique())
+
     chosen_wl = st.sidebar.selectbox("Workload Type", workloads, index=0)
-    tpcc_df = cleared_sys_df[cleared_sys_df["workload-name"].str.contains(chosen_wl)]
-    train_size_fraq = st.sidebar.slider("Training set size ratio", 0.05, 0.95, 0.35, step=0.05)
-    print(tpcc_df.head())
-    tpcc_df = tpcc_df.drop(columns=["workload", "workload-name", "config"])
-    wl_levels = tpcc_df["workload-scale"].unique()
+    data_df = cleared_sys_df[cleared_sys_df["workload-name"].str.contains(chosen_wl)]
+    train_size_fraq = st.sidebar.slider("Training set size ratio", 0.05, 0.95, 0.15, step=0.05)
+    print(data_df.head(20))
+    data_df = data_df.drop(columns=["workload", "workload-name", "config", ], errors='ignore')
+    wl_levels = data_df["workload-scale"].unique()
 
     nfp = chosen_nfp
-    train_df, test_df = sklearn.model_selection.train_test_split(tpcc_df, train_size=train_size_fraq)
+    train_df, test_df = sklearn.model_selection.train_test_split(data_df, train_size=train_size_fraq)
     y_train = train_df[nfp].to_numpy()
     y_test = test_df[nfp].to_numpy()
-    train_df_without_nfp = train_df.drop(columns=[nfp])
+    train_df_without_nfp = train_df.drop(columns=nfps)
     x_train = train_df_without_nfp.astype(int).to_numpy()
-    x_test = test_df.drop(columns=[nfp]).astype(int).to_numpy()
+    x_test = test_df.drop(columns=nfps).astype(int).to_numpy()
 
     ## Models to fit
     st.sidebar.write("# Models")
-    models=["WL-Ignorant MCMC", "Linear MCMC", "RelWL MCMC Model"]
+    models = ["WL-Agnostic MCMC", "Linear MCMC", "RelWL MCMC Model"]
     chosen_models = st.sidebar.multiselect("MCMC Models (expensive)", options=models, default=models)
 
     ## MCMC samples
@@ -484,8 +533,8 @@ def main():
 
     ## Scaling
     scaler = MinMaxScaler()
-    x_train[:,-1] = scaler.fit_transform(np.atleast_2d(x_train[:,-1]).T)[:,-1].ravel()
-    x_test[:,-1] = scaler.transform(np.atleast_2d(x_test[:,-1]).T).ravel()
+    x_train[:, -1] = scaler.fit_transform(np.atleast_2d(x_train[:, -1]).T)[:, -1].ravel()
+    x_test[:, -1] = scaler.transform(np.atleast_2d(x_test[:, -1]).T).ravel()
 
     x_train_no_wl = x_train[:, :-1]
     x_test_no_wl = x_test[:, :-1]
@@ -494,40 +543,13 @@ def main():
     st.write("Workload Levels")
     st.write(wl_levels)
     # st.write("## ")
-    with st.expander("Training Data"):
-        st.write(train_df)
+    with st.expander(f"Data [{len(data_df)} samples]"):
+        st.write(data_df.head())
+    with st.expander(f"Training Data [{len(train_df_without_nfp)} samples]"):
+        st.write(train_df_without_nfp.head())
     if st.sidebar.button("Let's gooooooo") or no_streamlit:
-        container_own_models = st.container()
         container_reference_models = st.container()
-
-        with container_own_models:
-            # c1, c2, c3 = st.columns(3)
-            # with c1:
-            # num_chains = 3
-            # mcmc_samples = 500
-            # mcmc_tune = 750
-            if "WL-Ignorant MCMC" in chosen_models:
-                st.write("## WL-Ignorant MCMC")
-                st.write("This model does not get the workload feature.")
-                with st.spinner("Fitting MCMC"):
-                    mcmc_reg = PyroMCMCWorkloadRegressor(mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
-                    mcmc_reg.fit(x_train_no_wl, y_train, num_chains)
-                plot_mcmc_scores(features[:-1], mcmc_reg, num_chains, x_test_no_wl, y_test)
-            if "Linear MCMC" in chosen_models:
-                st.write("## Linear MCMC")
-                st.write("This model gets the workload feature but treats it as a regular option.")
-                with st.spinner("Fitting MCMC Model"):
-                    mcmc_reg = PyroMCMCWorkloadRegressor(mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
-                    mcmc_reg.fit(x_train, y_train, num_chains)
-                plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, y_test)
-            if "RelWL MCMC Model" in chosen_models:
-                st.write("## RelWL MCMC Model")
-                st.write("This model gets the workload feature and learns a relative transfer of computed performance values between workloads. "
-                         "Hence, the model does not differenciate between different option influence.")
-                with st.spinner("Fitting RelWL MCMC Model"):
-                    rel_wl_mcmc_reg = RelativeScalingWorkloadRegressor(mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
-                    rel_wl_mcmc_reg.fit(x_train, y_train, num_chains)
-                plot_mcmc_scores(features, rel_wl_mcmc_reg, num_chains, x_test, y_test)
+        container_own_models = st.container()
 
         with container_reference_models:
             # c1, c2, c3 = st.columns(3)
@@ -569,11 +591,42 @@ def main():
             #     mlp_reg = MLPRegressor(max_iter=2500)
             #     mlp_reg.fit(x_train, y_train)
             #     st_create_scores(mlp_reg, x_test, y_test)
+
+        with container_own_models:
+            # c1, c2, c3 = st.columns(3)
+            # with c1:
+            # num_chains = 3
+            # mcmc_samples = 500
+            # mcmc_tune = 750
+            if "WL-Agnostic MCMC" in chosen_models:
+                st.write("## WL-Agnostic MCMC")
+                st.write("This model does not get the workload feature.")
+                with st.spinner("Fitting MCMC"):
+                    mcmc_reg = PyroMCMCWorkloadRegressor(mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
+                    mcmc_reg.fit(x_train_no_wl, y_train, num_chains)
+                plot_mcmc_scores(features[:-1], mcmc_reg, num_chains, x_test_no_wl, y_test)
+            if "Linear MCMC" in chosen_models:
+                st.write("## Linear MCMC")
+                st.write("This model gets the workload feature but treats it as a regular option.")
+                with st.spinner("Fitting MCMC Model"):
+                    mcmc_reg = PyroMCMCWorkloadRegressor(mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
+                    mcmc_reg.fit(x_train, y_train, num_chains)
+                plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, y_test)
+            if "RelWL MCMC Model" in chosen_models:
+                st.write("## RelWL MCMC Model")
+                st.write(
+                    "This model gets the workload feature and learns a relative transfer of computed performance values between workloads. "
+                    "Hence, the model does not differenciate between different option influence.")
+                with st.spinner("Fitting RelWL MCMC Model"):
+                    rel_wl_mcmc_reg = RelativeScalingWorkloadRegressor(mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
+                    rel_wl_mcmc_reg.fit(x_train, y_train, num_chains)
+                plot_mcmc_scores(features, rel_wl_mcmc_reg, num_chains, x_test, y_test)
+
         st.balloons()
 
 
 def plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, y_test):
-    graph = numpyro.render_model(mcmc_reg.conditionable_model, model_args=(x_test,), filename="model.pdf",
+    graph = numpyro.render_model(mcmc_reg.conditionable_model, model_args=(x_test,),  # filename="model.pdf",
                                  render_params=True, render_distributions=True)
     st.graphviz_chart(graph)
     with st.spinner("Plotting"):
@@ -584,8 +637,8 @@ def plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, y_test):
             "coords": coords,
             # "constant_data": {"x": xdata}
         }
-        az_data = az.from_numpyro(mcmc_reg.mcmc_fitted, num_chains=num_chains,  **idata_kwargs)
-        az.plot_trace(az_data, )#compact=True, var_names=("base", "coefs"))
+        az_data = az.from_numpyro(mcmc_reg.mcmc_fitted, num_chains=num_chains, **idata_kwargs)
+        az.plot_trace(az_data, )  # compact=True, var_names=("base", "coefs"))
         fig = plt.gcf()
         plt.tight_layout()
         st.pyplot(fig)
@@ -595,7 +648,6 @@ def plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, y_test):
         # plt.tight_layout()
         # st.pyplot(fig)
 
-
         az.plot_forest(az_data)
         fig = plt.gcf()
         plt.tight_layout()
@@ -603,7 +655,8 @@ def plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, y_test):
     with st.spinner("Scoring"):
         divergences = mcmc_reg.mcmc_fitted.get_extra_fields()["diverging"].sum()
         if divergences:
-            st.error(f"Encountered {divergences} divergences! This means that the sampling did not find the posterior reliably and we should consider a different model structure.")
+            st.error(
+                f"Encountered {divergences} divergences! This means that the sampling did not find the posterior reliably and we should consider a different model structure.")
         st_create_scores(mcmc_reg, x_test, y_test)
 
 
