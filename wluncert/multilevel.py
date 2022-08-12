@@ -382,16 +382,13 @@ class RelativeScalingWorkloadRegressor(PyroMCMCWorkloadRegressor):
 
 
 class HierarchicalWorkloadRegressor(PyroMCMCWorkloadRegressor):
-    def fit(self, X, y, num_chains=3):
-        workloads = X[:, -1]
-        X = X[:, :-1]
-        scaler = MinMaxScaler()
-        X = jnp.atleast_2d(scaler.fit_transform(X))
-        y = jnp.atleast_1d(y)
-        X = jnp.atleast_2d(X)
+    def __init__(self, *args, **kwargs):
+        super(HierarchicalWorkloadRegressor, self).__init__(*args, **kwargs)
+        self.workloads = []
+
+    def fit(self, X, workloads, y, num_chains=3):
         obs_conditioned_model = self.condition(y)
-        nuts_kernel = npNUTS(obs_conditioned_model, adapt_step_size=True,
-                             dense_mass=False, find_heuristic_step_size=True)
+        nuts_kernel = npNUTS(obs_conditioned_model)
         progress_bar = False
         mcmc = npMCMC(nuts_kernel, num_samples=self.mcmc_samples,
                       num_warmup=self.mcmc_tune, progress_bar=progress_bar, num_chains=num_chains, )
@@ -417,16 +414,14 @@ class HierarchicalWorkloadRegressor(PyroMCMCWorkloadRegressor):
 
         with numpyro.plate("coefs_vectorized", num_opts):
             with numpyro.plate("workload_plate_coefs", n_workloads):
-                rnd_influences = numpyro.sample("coefs", npdist.Normal(hyper_coef_means, hyper_coef_stddevs), )
-
-
+                rnd_influences = hyper_coef_means + numpyro.sample("coefs", npdist.Normal(0, hyper_coef_stddevs), )
 
         with numpyro.plate("workload_plate_bases", n_workloads):
-            bases = numpyro.sample("base", npdist.HalfNormal(y_order_of_magnitude))
+            bases = hyper_base_mean + numpyro.sample("base", npdist.Normal(0, hyper_base_stddev))
 
         result_arr = jnp.zeros(len(workloads))
         for workload, influences, base in zip(unique_workloads, rnd_influences, bases):
-            mask = workloads == workload
+            mask = workloads == str(workload)
             samples_with_wl = data[mask]
             product = jnp.matmul(samples_with_wl, influences).reshape(-1)
             result = product + base
@@ -435,18 +430,7 @@ class HierarchicalWorkloadRegressor(PyroMCMCWorkloadRegressor):
         error_var = numpyro.sample("error", npdist.Gamma(1.0, 0.9))
         with numpyro.plate("data_vectorized", len(data)) as ind:
             obs = numpyro.sample("measurements", npdist.Normal(result_arr, error_var))
-
-            # wl_col = data[:, -1]
-            # relative_workload_diff = wl_col * wl_scale
-            # result = result * relative_workload_diff
-
-            # error_var = numpyro.sample("error", npdist.Gamma(self.abs_err_gamma_alpha/5, self.abs_err_gamma_beta))
-
-            # relative_error_var = numpyro.sample("error_rel", npdist.Gamma(self.rel_err_gamma_alpha/5, self.rel_err_gamma_beta))
-            # relative_error_var = numpyro.sample("error_rel", npdist.Gamma(1.0, 0.01))
-            # result = result + (relative_error_var * result)
-            # error_var = numpyro.sample("error", npdist.HalfNormal(0.01) )
-            return obs
+        return obs
 
 
 def get_mape(sk_model, x, y) -> float:
@@ -546,7 +530,6 @@ def remove_multicollinearity(df):
 def main():
     no_streamlit = len(sys.argv) > 1
     st.sidebar.write("# 🗄️ Training Data")
-
     sub_folder_name = "training-data/"
 
     dirname = os.path.dirname(__file__)
@@ -591,13 +574,21 @@ def main():
     workloads = data_df["workload"].unique()
 
     train_df, test_df = sklearn.model_selection.train_test_split(data_df, train_size=train_size_fraq)
-    y_train = train_df[nfp].to_numpy()
-    y_test = test_df[nfp].to_numpy()
+    y_train = np.atleast_2d(train_df[nfp].to_numpy()).T
+    y_test = np.atleast_2d(test_df[nfp].to_numpy()).T
     train_df_without_nfp = train_df.drop(columns=nfps)
     # x_train = train_df_without_nfp.astype(int).to_numpy()
     # x_test = test_df.drop(columns=nfps).astype(int).to_numpy()
     x_train = train_df_without_nfp.to_numpy()
     x_test = test_df.drop(columns=nfps).to_numpy()
+    workloads_train = np.array(list(x_train[:, -1]))
+    workloads_test = np.array(list(x_test[:, -1]))
+    x_scaler = MinMaxScaler()
+    y_scaler = StandardScaler()
+    x_train = jnp.atleast_2d(x_scaler.fit_transform(x_train[:,:-1]))
+    x_test = jnp.atleast_2d(x_scaler.transform(x_test[:,:-1]))
+    y_train = jnp.atleast_2d(y_scaler.fit_transform(y_train))
+    y_test = jnp.atleast_2d(y_scaler.transform(y_test))
 
     ## Models to fit
     st.sidebar.write("# Models")
@@ -606,8 +597,8 @@ def main():
 
     ## MCMC samples
     st.sidebar.write("# Training Parameters")
-    mcmc_tune = st.sidebar.slider("Tuning MCMC samples", 250, 4000, value=500, step=250)
-    mcmc_samples = st.sidebar.slider("Posterior MCMC samples", 250, 4000, value=250, step=250)
+    mcmc_tune = st.sidebar.slider("Tuning MCMC samples", 250, 4000, value=2, step=250)
+    mcmc_samples = st.sidebar.slider("Posterior MCMC samples", 250, 4000, value=2, step=250)
     num_chains = st.sidebar.slider("Parallel MCMC Chains", 1, 6, value=3, step=1)
 
     ## Scaling
@@ -727,8 +718,9 @@ def main():
                     "a workload-aware model without hyper priors.")
                 with st.spinner("Fitting MCMC"):
                     mcmc_reg = HierarchicalWorkloadRegressor(y_train, mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
-                    mcmc_reg.fit(x_train, y_train, num_chains)
-                mape_mcmc_agnostic = plot_mcmc_scores(features[:-1], mcmc_reg, num_chains, x_test_no_wl, y_test)
+                    mcmc_reg.fit(x_train, workloads_train, y_train, num_chains)
+                mape_mcmc_agnostic = plot_mcmc_scores(features[:-1], mcmc_reg, num_chains, x_test, workloads_test,
+                                                      y_test)
                 update_metric(metric_no_wl_MCMC, "📊 MCMC Agn", mape_mcmc_agnostic, mape_lin_reg_no_workload_ft)
             if "📊 WL-Agnostic MCMC" in chosen_models:
                 st.write("## WL-Agnostic MCMC")
@@ -762,8 +754,9 @@ def main():
         st.balloons()
 
 
-def plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, y_test):
-    graph = numpyro.render_model(mcmc_reg.conditionable_model, model_args=(x_test,),  # filename="model.pdf",
+def plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, workloads, y_test):
+    graph = numpyro.render_model(mcmc_reg.conditionable_model, model_args=(x_test, workloads),
+                                 # filename="model.pdf",
                                  render_params=True, render_distributions=True)
     sys_id = hash("-".join(features))
     dir_path = "./results"
