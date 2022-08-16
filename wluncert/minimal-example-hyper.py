@@ -114,7 +114,21 @@ def main():
     # mcmc.run(rng_key, X_agg[:, 0], X_agg[:, 1], X_agg[:, 2], given_obs=nfp_mean_agg, obs_stddev=nfp_stddev_agg)
     mcmc.run(rng_key, X, workloads, 3, nfp)
     mcmc.print_summary()
-    az_data = az.from_numpyro(mcmc, num_chains=n_chains)
+
+    coords = {"features": ["A", "B", "C"], "workloads":["WL1", "WL2", "WL3"]}
+    dims = {
+        "coefs": ["workloads", "features"],
+        "base": ["workloads"],
+        "hyper_coef_stddevs": ["features"],
+        "hyper_coef_means": ["features"],
+    }
+    idata_kwargs = {
+        "dims": dims,
+        "coords": coords,
+        # "constant_data": {"x": xdata}
+    }
+
+    az_data = az.from_numpyro(mcmc, num_chains=n_chains, **idata_kwargs)
     print()
     print("ESS")
     print(az.ess(az_data))
@@ -148,14 +162,14 @@ def main():
 
 
 def generate_training_data():
-    # configs = list(itertools.product([True, False], repeat=3))
-    configs = [
-        [False, False, False],
-        [True, False, False],
-        [False, True, False],
-        [False, False, True],
-        [True, True, True],
-    ]
+    configs = list(itertools.product([True, False], repeat=3))
+    # configs = [
+    #     [False, False, False],
+    #     [True, False, False],
+    #     [False, True, False],
+    #     [False, False, True],
+    #     [True, True, True],
+    # ]
     n_reps = 15
     print(f"Simulating {n_reps} measurement repetitions")
     configs = configs * n_reps  # simulating repeated measurements
