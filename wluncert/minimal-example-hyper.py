@@ -22,23 +22,23 @@ numpyro.set_host_device_count(4)
 
 def workload_model(data, workloads, n_workloads, reference_y):
     workloads = jnp.array(workloads)
-    y_order_of_magnitude = jnp.mean(reference_y)
-    joint_coef_stdev = 0.5 * y_order_of_magnitude
+    y_order_of_magnitude = jnp.std(reference_y)
+    joint_coef_stdev = 1 * y_order_of_magnitude
     num_opts = data.shape[1]
 
-    stddev_exp_prior = 1.0
-    with numpyro.plate("hypers_vectorized", num_opts):
-        hyper_coef_means = numpyro.sample("hyper_coef_means", npdist.Normal(0, joint_coef_stdev), )
-        hyper_coef_stddevs = numpyro.sample("hyper_coef_stddevs", npdist.Exponential(stddev_exp_prior), )
+    stddev_exp_prior = 5.0
+    with numpyro.plate("options", num_opts):
+        hyper_coef_means = numpyro.sample("means-hyper", npdist.Normal(0, joint_coef_stdev), )
+        hyper_coef_stddevs = numpyro.sample("stddevs-hyper", npdist.Exponential(stddev_exp_prior), )
 
-    hyper_base_mean = numpyro.sample("hyper_base_mean", npdist.Normal(0, joint_coef_stdev), )
-    hyper_base_stddev = numpyro.sample("hyper_base_stddev", npdist.Exponential(stddev_exp_prior), )
+    hyper_base_mean = numpyro.sample("base mean hyperior", npdist.Normal(0, joint_coef_stdev), )
+    hyper_base_stddev = numpyro.sample("base stddevs hyperior", npdist.Exponential(stddev_exp_prior), )
 
-    with numpyro.plate("coefs_vectorized", num_opts):
-        with numpyro.plate("workload_plate_coefs", n_workloads):
-            rnd_influences = numpyro.sample("coefs", npdist.Normal(hyper_coef_means, hyper_coef_stddevs), )
+    with numpyro.plate("options", num_opts):
+        with numpyro.plate("workloads", n_workloads):
+            rnd_influences = numpyro.sample("influences", npdist.Normal(hyper_coef_means, hyper_coef_stddevs), )
 
-    with numpyro.plate("workload_plate_bases", n_workloads):
+    with numpyro.plate("workloads", n_workloads):
         bases = numpyro.sample("base", npdist.Normal(hyper_base_mean, hyper_base_stddev))
 
     respective_influences = rnd_influences[workloads]
@@ -47,15 +47,15 @@ def workload_model(data, workloads, n_workloads, reference_y):
     result_arr = result_arr.sum(axis=1).ravel() + respective_bases
     error_var = numpyro.sample("error", npdist.Exponential(.10))
 
-    with numpyro.plate("data_vectorized", result_arr.shape[0]):
-        obs = numpyro.sample("measurements", npdist.Normal(result_arr, error_var), obs=reference_y)
+    with numpyro.plate("data", result_arr.shape[0]):
+        obs = numpyro.sample("observations", npdist.Normal(result_arr, error_var), obs=reference_y)
     return obs
 
 
 def ask_oracle(config, workload_id):
     base = 20
     a, b, c = config
-    influence_a = float(scipy.stats.norm(5, 3).rvs(1)[0])
+    influence_a = float(scipy.stats.norm(5, 3).rvs(1)[0]) + workload_id
     influence_b = 0.05
     influence_c = 8
     nfp = influence_a * a + influence_b * b + influence_c * c + base
@@ -88,6 +88,12 @@ def main():
     X_df_agg, X_agg, nfp_mean_agg, nfp_stddev_agg = compute_obs_stddev(X, nfp)
     print("Training Data with aggregated repetitions")
     print(X_df_agg)
+    graph = numpyro.render_model(workload_model, model_args=(X, workloads, 3, nfp),
+                                 # filename="model.pdf",
+                                 filename="minimal-workload-model.pdf")
+    # graph = numpyro.render_model(workload_model, model_args=(X, workloads, 3, nfp),
+    #                                  # filename="model.pdf",
+    #                                  render_params=True, render_distributions=True, filename="minimal-model.pdf")
 
     reparam_config = {
         "coefs": LocScaleReparam(0),
@@ -99,6 +105,8 @@ def main():
         # "hyper_coef_stddevs": LocScaleReparam(0),
     }
     reparam_model = reparam(workload_model, config=reparam_config)
+
+
 
     # nuts_kernel = npNUTS(model, target_accept_prob=0.9,max_tree_depth=20)
     nuts_kernel = npNUTS(reparam_model, target_accept_prob=0.9)
@@ -115,7 +123,10 @@ def main():
     mcmc.run(rng_key, X, workloads, 3, nfp)
     mcmc.print_summary()
 
-    coords = {"features": ["A", "B", "C"], "workloads":["WL1", "WL2", "WL3"]}
+    coords = {
+        "features": ["A", "B", "C"],
+        "workloads": ["WL1", "WL2", "WL3"]
+    }
     dims = {
         "coefs": ["workloads", "features"],
         "base": ["workloads"],
@@ -170,16 +181,16 @@ def generate_training_data():
     #     [False, False, True],
     #     [True, True, True],
     # ]
-    n_reps = 15
+    n_reps = 1
     print(f"Simulating {n_reps} measurement repetitions")
     configs = configs * n_reps  # simulating repeated measurements
-    workloads = [0,1,2]
+    workloads = [0, 1, 2]
     # python_random.shuffle(configs)
-    nfp = [jnp.atleast_1d(list(map(ask_oracle, configs, [wl_id]*len(configs)))) for wl_id in workloads]
+    nfp = [jnp.atleast_1d(list(map(ask_oracle, configs, [wl_id] * len(configs)))) for wl_id in workloads]
     nfp = [element for sublist in nfp for element in sublist]
-    workloads = [[wl_id]*len(configs) for wl_id in workloads]
+    workloads = [[wl_id] * len(configs) for wl_id in workloads]
     workloads = [element for sublist in workloads for element in sublist]
-    X = jnp.atleast_2d(configs*3)
+    X = jnp.atleast_2d(configs * 3)
     X = jnp.array(MinMaxScaler().fit_transform(X))
     nfp = jnp.array(StandardScaler().fit_transform(jnp.atleast_2d(nfp).T)[:, 0])
     return X, nfp, workloads
