@@ -23,10 +23,10 @@ numpyro.set_host_device_count(4)
 def workload_model(data, workloads, n_workloads, reference_y):
     workloads = jnp.array(workloads)
     y_order_of_magnitude = jnp.std(reference_y)
-    joint_coef_stdev = 1 * y_order_of_magnitude
+    joint_coef_stdev = 2 * y_order_of_magnitude
     num_opts = data.shape[1]
 
-    stddev_exp_prior = 5.0
+    stddev_exp_prior = 2.0
     with numpyro.plate("options", num_opts):
         hyper_coef_means = numpyro.sample("means-hyper", npdist.Normal(0, joint_coef_stdev), )
         hyper_coef_stddevs = numpyro.sample("stddevs-hyper", npdist.Exponential(stddev_exp_prior), )
@@ -47,19 +47,21 @@ def workload_model(data, workloads, n_workloads, reference_y):
     result_arr = result_arr.sum(axis=1).ravel() + respective_bases
     error_var = numpyro.sample("error", npdist.Exponential(.10))
 
-    with numpyro.plate("data", result_arr.shape[0]):
-        obs = numpyro.sample("observations", npdist.Normal(result_arr, error_var), obs=reference_y)
+    # with numpyro.plate("data", result_arr.shape[0]):
+    obs = numpyro.sample("observations", npdist.Normal(result_arr, error_var), obs=reference_y)
     return obs
 
 
-def ask_oracle(config, workload_id):
-    base = 20
-    a, b, c = config
-    influence_a = float(scipy.stats.norm(5, 3).rvs(1)[0]) + workload_id
-    influence_b = 0.05
-    influence_c = 8
-    nfp = influence_a * a + influence_b * b + influence_c * c + base
-    nfp = nfp + workload_id * 2
+def ask_oracle(config, workload_id, noise_percent=1):
+    base = 20 + workload_id * 5
+    a, b = config
+    a_mean = 5
+    a_stddev = a_mean * noise_percent / 100
+    influence_a = float(scipy.stats.norm(a_mean, a_stddev).rvs(1)[0]) + workload_id
+    # influence_b = 3 if scipy.stats.bernoulli(0.35).rvs(1)[0] else 10
+    influence_b = 3
+    nfp = influence_a * a + influence_b * b + base
+    nfp = nfp
     return nfp
 
 
@@ -96,17 +98,15 @@ def main():
     #                                  render_params=True, render_distributions=True, filename="minimal-model.pdf")
 
     reparam_config = {
-        "coefs": LocScaleReparam(0),
+        "influences": LocScaleReparam(0),
         "base": LocScaleReparam(0),
         # "error": LocScaleReparam(0),
-        "hyper_base_mean": LocScaleReparam(0),
-        # "hyper_base_stddev": LocScaleReparam(0),
-        "hyper_coef_means": LocScaleReparam(0),
-        # "hyper_coef_stddevs": LocScaleReparam(0),
+        # "base mean hyperior": LocScaleReparam(0),
+        # "base stddevs hyperior": LocScaleReparam(0),
+        # "stddevs-hyper": LocScaleReparam(0),
+        # "means-hyper": LocScaleReparam(0),
     }
     reparam_model = reparam(workload_model, config=reparam_config)
-
-
 
     # nuts_kernel = npNUTS(model, target_accept_prob=0.9,max_tree_depth=20)
     nuts_kernel = npNUTS(reparam_model, target_accept_prob=0.9)
@@ -114,24 +114,27 @@ def main():
     # nuts_kernel = npHMC(model_obs_stddev, )
     n_chains = 3
     progress_bar = False
-    mcmc = npMCMC(nuts_kernel, num_samples=2000,
+    mcmc = npMCMC(nuts_kernel, num_samples=5000,
                   num_warmup=1000, progress_bar=progress_bar,
                   num_chains=n_chains, )
-    rng_key_ = random.PRNGKey(10)
+    rng_key_ = random.PRNGKey(0)
     rng_key_, rng_key = random.split(rng_key_)
     # mcmc.run(rng_key, X_agg[:, 0], X_agg[:, 1], X_agg[:, 2], given_obs=nfp_mean_agg, obs_stddev=nfp_stddev_agg)
     mcmc.run(rng_key, X, workloads, 3, nfp)
     mcmc.print_summary()
 
     coords = {
-        "features": ["A", "B", "C"],
+        # "features": ["A", "B", "C"],
+        "features": ["A", "B"],
         "workloads": ["WL1", "WL2", "WL3"]
     }
     dims = {
-        "coefs": ["workloads", "features"],
+        "influences": ["workloads", "features"],
+        "influences_decentered": ["workloads", "features"],
         "base": ["workloads"],
-        "hyper_coef_stddevs": ["features"],
-        "hyper_coef_means": ["features"],
+        "base_decentered": ["workloads"],
+        "means-hyper": ["features"],
+        "stddevs-hyper": ["features"],
     }
     idata_kwargs = {
         "dims": dims,
@@ -173,7 +176,7 @@ def main():
 
 
 def generate_training_data():
-    configs = list(itertools.product([True, False], repeat=3))
+    configs = list(itertools.product([True, False], repeat=2))
     # configs = [
     #     [False, False, False],
     #     [True, False, False],
@@ -181,7 +184,7 @@ def generate_training_data():
     #     [False, False, True],
     #     [True, True, True],
     # ]
-    n_reps = 1
+    n_reps = 3
     print(f"Simulating {n_reps} measurement repetitions")
     configs = configs * n_reps  # simulating repeated measurements
     workloads = [0, 1, 2]
