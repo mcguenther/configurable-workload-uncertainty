@@ -1,5 +1,8 @@
 import sys
 import time
+from functools import partial
+
+import jax
 from matplotlib import pyplot as plt
 import torch
 import pyro
@@ -18,7 +21,7 @@ import jax.numpy as jnp
 import numpyro.distributions as npdist
 from numpyro.infer import HMCECS as npHMCECS, MCMC as npMCMC, NUTS as npNUTS, HMC as npHMC, BarkerMH, \
     Predictive as npPredictive
-from jax import random
+from jax import random, jit
 from numpyro.handlers import condition as npcondition, seed as npseed, substitute as npsubstitute, trace as nptrace
 import arviz as az
 import numpyro
@@ -40,6 +43,13 @@ from contextlib import redirect_stdout
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, PolynomialFeatures
 from scipy.stats import gamma
 from sklearn.pipeline import make_pipeline
+from absl import logging
+
+from numpyro.handlers import reparam
+from numpyro.infer.reparam import LocScaleReparam
+
+# logging.set_verbosity(4)
+
 
 numpyro.set_host_device_count(3)
 import copy
@@ -387,49 +397,169 @@ class HierarchicalWorkloadRegressor(PyroMCMCWorkloadRegressor):
         self.workloads = []
 
     def fit(self, X, workloads, y, num_chains=3):
+        workloads = tuple(workloads)
         obs_conditioned_model = self.condition(y)
-        nuts_kernel = npNUTS(obs_conditioned_model)
+        # obs_conditioned_model = jax.jit(obs_conditioned_model, static_argnums=1)
+
+        reparam_config = {
+            "coefs": LocScaleReparam(0),
+            "base": LocScaleReparam(0),
+            # "error": LocScaleReparam(0),
+            "hyper_base_mean": LocScaleReparam(0),
+            # "hyper_base_stddev": LocScaleReparam(0),
+            "hyper_coef_means": LocScaleReparam(0),
+            # "hyper_coef_stddevs": LocScaleReparam(0),
+        }
+        reparam_model = reparam(obs_conditioned_model, config=reparam_config)
+
+        nuts_kernel = npNUTS(reparam_model, target_accept_prob=0.9)
         progress_bar = False
         mcmc = npMCMC(nuts_kernel, num_samples=self.mcmc_samples,
                       num_warmup=self.mcmc_tune, progress_bar=progress_bar, num_chains=num_chains, )
-        rng_key = random.PRNGKey(0)
-        mcmc.run(rng_key, X, workloads)
+        rng_key = random.PRNGKey(10)
+        n_workloads = len(np.unique(workloads))
+        mcmc.run(rng_key, X, workloads, n_workloads, y)
         mcmc.print_summary()
         self.mcmc_fitted = mcmc
         self.samples = mcmc.get_samples()
 
-    def conditionable_model(self, data, workloads):
+    def conditionable_model2(self, data, workloads):
+        workloads = np.array(workloads)
         y_order_of_magnitude = np.mean(self.problem_y)
         joint_coef_stdev = 2 * y_order_of_magnitude
         num_opts = data.shape[1]
         unique_workloads = np.unique(workloads)
         n_workloads = len(unique_workloads)
+        hyper_mean_1 = numpyro.sample("hyper_coef_means1", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_2 = numpyro.sample("hyper_coef_means2", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_3 = numpyro.sample("hyper_coef_means3", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_4 = numpyro.sample("hyper_coef_means4", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_5 = numpyro.sample("hyper_coef_means5", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_6 = numpyro.sample("hyper_coef_means6", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_7 = numpyro.sample("hyper_coef_means7", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_8 = numpyro.sample("hyper_coef_means8", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_9 = numpyro.sample("hyper_coef_means9", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_10 = numpyro.sample("hyper_coef_means10", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_11 = numpyro.sample("hyper_coef_means11", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_12 = numpyro.sample("hyper_coef_means12", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_13 = numpyro.sample("hyper_coef_means13", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_14 = numpyro.sample("hyper_coef_means14", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_15 = numpyro.sample("hyper_coef_means15", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_16 = numpyro.sample("hyper_coef_means16", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_17 = numpyro.sample("hyper_coef_means17", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_18 = numpyro.sample("hyper_coef_means18", npdist.Normal(0, joint_coef_stdev), )
+        hyper_mean_19 = numpyro.sample("hyper_coef_means19", npdist.Normal(0, joint_coef_stdev), )
 
-        with numpyro.plate("hypers_vectorized", num_opts):
-            hyper_coef_means = numpyro.sample("hyper_coef_means", npdist.Normal(0, joint_coef_stdev), )
-            hyper_coef_stddevs = numpyro.sample("hyper_coef_stddevs", npdist.Exponential(0.1), )
+        hyper_stddev_1 = numpyro.sample("hyper_coef_stddevs1", npdist.Exponential(0.1), )
+        hyper_stddev_2 = numpyro.sample("hyper_coef_stddevs2", npdist.Exponential(0.1), )
+        hyper_stddev_3 = numpyro.sample("hyper_coef_stddevs3", npdist.Exponential(0.1), )
+        hyper_stddev_4 = numpyro.sample("hyper_coef_stddevs4", npdist.Exponential(0.1), )
+        hyper_stddev_5 = numpyro.sample("hyper_coef_stddevs5", npdist.Exponential(0.1), )
+        hyper_stddev_6 = numpyro.sample("hyper_coef_stddevs6", npdist.Exponential(0.1), )
+        hyper_stddev_7 = numpyro.sample("hyper_coef_stddevs7", npdist.Exponential(0.1), )
+        hyper_stddev_8 = numpyro.sample("hyper_coef_stddevs8", npdist.Exponential(0.1), )
+        hyper_stddev_9 = numpyro.sample("hyper_coef_stddevs9", npdist.Exponential(0.1), )
+        hyper_stddev_10 = numpyro.sample("hyper_coef_stddevs10", npdist.Exponential(0.1), )
+        hyper_stddev_11 = numpyro.sample("hyper_coef_stddevs11", npdist.Exponential(0.1), )
+        hyper_stddev_12 = numpyro.sample("hyper_coef_stddevs12", npdist.Exponential(0.1), )
+        hyper_stddev_13 = numpyro.sample("hyper_coef_stddevs13", npdist.Exponential(0.1), )
+        hyper_stddev_14 = numpyro.sample("hyper_coef_stddevs14", npdist.Exponential(0.1), )
+        hyper_stddev_15 = numpyro.sample("hyper_coef_stddevs15", npdist.Exponential(0.1), )
+        hyper_stddev_16 = numpyro.sample("hyper_coef_stddevs16", npdist.Exponential(0.1), )
+        hyper_stddev_17 = numpyro.sample("hyper_coef_stddevs17", npdist.Exponential(0.1), )
+        hyper_stddev_18 = numpyro.sample("hyper_coef_stddevs18", npdist.Exponential(0.1), )
+        hyper_stddev_19 = numpyro.sample("hyper_coef_stddevs19", npdist.Exponential(0.1), )
 
         hyper_base_mean = numpyro.sample("hyper_base_mean", npdist.Normal(0, joint_coef_stdev), )
         hyper_base_stddev = numpyro.sample("hyper_base_stddev", npdist.Exponential(0.1), )
 
-        with numpyro.plate("coefs_vectorized", num_opts):
-            with numpyro.plate("workload_plate_coefs", n_workloads):
-                rnd_influences = hyper_coef_means + numpyro.sample("coefs", npdist.Normal(0, hyper_coef_stddevs), )
+        with numpyro.plate("workload_plate_coefs", n_workloads):
+            rnd_influences1 = hyper_mean_1 + numpyro.sample("coefs1", npdist.Normal(0, hyper_stddev_1), )
+            rnd_influences2 = hyper_mean_2 + numpyro.sample("coefs2", npdist.Normal(0, hyper_stddev_2), )
+            rnd_influences3 = hyper_mean_3 + numpyro.sample("coefs3", npdist.Normal(0, hyper_stddev_3), )
+            rnd_influences4 = hyper_mean_4 + numpyro.sample("coefs4", npdist.Normal(0, hyper_stddev_4), )
+            rnd_influences5 = hyper_mean_5 + numpyro.sample("coefs5", npdist.Normal(0, hyper_stddev_5), )
+            rnd_influences6 = hyper_mean_6 + numpyro.sample("coefs6", npdist.Normal(0, hyper_stddev_6), )
+            rnd_influences7 = hyper_mean_7 + numpyro.sample("coefs7", npdist.Normal(0, hyper_stddev_7), )
+            rnd_influences8 = hyper_mean_8 + numpyro.sample("coefs8", npdist.Normal(0, hyper_stddev_8), )
+            rnd_influences9 = hyper_mean_9 + numpyro.sample("coefs9", npdist.Normal(0, hyper_stddev_9), )
+            rnd_influences10 = hyper_mean_10 + numpyro.sample("coefs10", npdist.Normal(0, hyper_stddev_10), )
+            rnd_influences11 = hyper_mean_11 + numpyro.sample("coefs11", npdist.Normal(0, hyper_stddev_11), )
+            rnd_influences12 = hyper_mean_12 + numpyro.sample("coefs12", npdist.Normal(0, hyper_stddev_12), )
+            rnd_influences13 = hyper_mean_13 + numpyro.sample("coefs13", npdist.Normal(0, hyper_stddev_13), )
+            rnd_influences14 = hyper_mean_14 + numpyro.sample("coefs14", npdist.Normal(0, hyper_stddev_14), )
+            rnd_influences15 = hyper_mean_15 + numpyro.sample("coefs15", npdist.Normal(0, hyper_stddev_15), )
+            rnd_influences16 = hyper_mean_16 + numpyro.sample("coefs16", npdist.Normal(0, hyper_stddev_16), )
+            rnd_influences17 = hyper_mean_17 + numpyro.sample("coefs17", npdist.Normal(0, hyper_stddev_17), )
+            rnd_influences18 = hyper_mean_18 + numpyro.sample("coefs18", npdist.Normal(0, hyper_stddev_18), )
+            rnd_influences19 = hyper_mean_19 + numpyro.sample("coefs19", npdist.Normal(0, hyper_stddev_19), )
 
         with numpyro.plate("workload_plate_bases", n_workloads):
             bases = hyper_base_mean + numpyro.sample("base", npdist.Normal(0, hyper_base_stddev))
 
-        result_arr = jnp.zeros(len(workloads))
-        for workload, influences, base in zip(unique_workloads, rnd_influences, bases):
-            mask = workloads == str(workload)
-            samples_with_wl = data[mask]
-            product = jnp.matmul(samples_with_wl, influences).reshape(-1)
-            result = product + base
-            # result_arr[mask] = result
-            result_arr = result_arr.at[mask].set(result)
-        error_var = numpyro.sample("error", npdist.Gamma(1.0, 0.9))
-        with numpyro.plate("data_vectorized", len(data)) as ind:
+        respective_influence1 = rnd_influences1[workloads]
+        respective_influence2 = rnd_influences2[workloads]
+        respective_influence3 = rnd_influences3[workloads]
+        respective_influence4 = rnd_influences4[workloads]
+        respective_influence5 = rnd_influences5[workloads]
+        respective_influence6 = rnd_influences6[workloads]
+        respective_influence7 = rnd_influences7[workloads]
+        respective_influence8 = rnd_influences8[workloads]
+        respective_influence9 = rnd_influences9[workloads]
+        respective_influence10 = rnd_influences10[workloads]
+        respective_influence11 = rnd_influences11[workloads]
+        respective_influence12 = rnd_influences12[workloads]
+        respective_influence13 = rnd_influences13[workloads]
+        respective_influence14 = rnd_influences14[workloads]
+        respective_influence15 = rnd_influences15[workloads]
+        respective_influence16 = rnd_influences16[workloads]
+        respective_influence17 = rnd_influences17[workloads]
+        respective_influence18 = rnd_influences18[workloads]
+        respective_influence19 = rnd_influences19[workloads]
+        respective_bases = bases[workloads]
+        result_arr = respective_bases + data[:, 0] * respective_influence1 + data[:, 1] * respective_influence2 + \
+                     data[:, 2] * respective_influence3 + data[:, 3] * respective_influence4 + \
+                     data[:, 4] * respective_influence5 + data[:, 5] * respective_influence6 + \
+                     data[:, 6] * respective_influence7 + data[:, 7] * respective_influence8 + \
+                     data[:, 8] * respective_influence9 + data[:, 9] * respective_influence10 + \
+                     data[:, 10] * respective_influence11 + data[:, 11] * respective_influence12 + \
+                     data[:, 12] * respective_influence13 + data[:, 13] * respective_influence14 + \
+                     data[:, 14] * respective_influence15 + data[:, 15] * respective_influence16 + \
+                     data[:, 16] * respective_influence17 + data[:, 17] * respective_influence18 + \
+                     data[:, 18] * respective_influence19
+        error_var = numpyro.sample("error", npdist.Exponential(.10))
+        with numpyro.plate("data_vectorized", result_arr.shape[0]) as ind:
             obs = numpyro.sample("measurements", npdist.Normal(result_arr, error_var))
+
+    def conditionable_model(self, data, workloads, n_workloads, reference_y):
+        workloads = jnp.array(workloads)
+        y_order_of_magnitude = jnp.mean(reference_y)
+        joint_coef_stdev = 0.5 * y_order_of_magnitude
+        num_opts = data.shape[1]
+
+        exponential_prior = 1.0
+        with numpyro.plate("hypers_vectorized", num_opts):
+            hyper_coef_means = numpyro.sample("hyper_coef_means", npdist.Normal(0, joint_coef_stdev), )
+            hyper_coef_stddevs = numpyro.sample("hyper_coef_stddevs", npdist.Exponential(exponential_prior), )
+
+        hyper_base_mean = numpyro.sample("hyper_base_mean", npdist.Normal(0, joint_coef_stdev), )
+        hyper_base_stddev = numpyro.sample("hyper_base_stddev", npdist.Exponential(exponential_prior), )
+
+        with numpyro.plate("coefs_vectorized", num_opts):
+            with numpyro.plate("workload_plate_coefs", n_workloads):
+                rnd_influences = numpyro.sample("coefs", npdist.Normal(hyper_coef_means, hyper_coef_stddevs), )
+
+        with numpyro.plate("workload_plate_bases", n_workloads):
+            bases = numpyro.sample("base", npdist.Normal(hyper_base_mean, hyper_base_stddev))
+
+        respective_influences = rnd_influences[workloads]
+        respective_bases = bases[workloads]
+        result_arr = jnp.multiply(data, respective_influences)
+        result_arr = result_arr.sum(axis=1).ravel() + respective_bases
+        error_var = numpyro.sample("error", npdist.Exponential(exponential_prior))
+
+        with numpyro.plate("data_vectorized", result_arr.shape[0]):
+            obs = numpyro.sample("measurements", npdist.Normal(result_arr, error_var), obs=reference_y)
         return obs
 
 
@@ -568,9 +698,11 @@ def main():
     nfps = [nfp for nfp in nfp_candidates if nfp in typical_nfsp]
     nfp = st.sidebar.selectbox("NFP", nfps, index=0)
 
-    train_size_fraq = st.sidebar.slider("Training set size ratio", 0.05, 0.95, 0.15, step=0.05)
+    train_size_fraq = st.sidebar.slider("Training set size ratio", 0.05, 0.95, 0.02, step=0.05)
     print(all_workloads_df.head(20))
     data_df = all_workloads_df.drop(columns=["config", ], errors='ignore')
+    data_df["workload"] = data_df["workload"].astype('category')
+    data_df["workload"] = data_df["workload"].cat.codes
     workloads = data_df["workload"].unique()
 
     train_df, test_df = sklearn.model_selection.train_test_split(data_df, train_size=train_size_fraq)
@@ -585,11 +717,11 @@ def main():
     workloads_test = np.array(list(x_test[:, -1]))
     x_scaler = MinMaxScaler()
     y_scaler = StandardScaler()
-    x_train = jnp.atleast_2d(x_scaler.fit_transform(x_train[:,:-1]))
-    x_test = jnp.atleast_2d(x_scaler.transform(x_test[:,:-1]))
+    x_train = jnp.atleast_2d(x_scaler.fit_transform(x_train[:, :-1]))
+    x_test = jnp.atleast_2d(x_scaler.transform(x_test[:, :-1]))
     y_train = jnp.atleast_2d(y_scaler.fit_transform(y_train))
     y_test = jnp.atleast_2d(y_scaler.transform(y_test))
-
+    
     ## Models to fit
     st.sidebar.write("# Models")
     models = ["📊 Hyper MCMC", "📊 WL-Agnostic MCMC", "📊 Linear MCMC", "📊 RelWL MCMC Model", "Baselines"]
@@ -597,8 +729,8 @@ def main():
 
     ## MCMC samples
     st.sidebar.write("# Training Parameters")
-    mcmc_tune = st.sidebar.slider("Tuning MCMC samples", 250, 4000, value=2, step=250)
-    mcmc_samples = st.sidebar.slider("Posterior MCMC samples", 250, 4000, value=2, step=250)
+    mcmc_tune = st.sidebar.slider("Tuning MCMC samples", 250, 4000, value=250, step=250)
+    mcmc_samples = st.sidebar.slider("Posterior MCMC samples", 250, 4000, value=250, step=250)
     num_chains = st.sidebar.slider("Parallel MCMC Chains", 1, 6, value=3, step=1)
 
     ## Scaling
@@ -611,147 +743,19 @@ def main():
     x_test_no_wl = x_test[:, :-1]
     features = list(list(train_df_without_nfp.columns))
     n_workloads = len(workloads)
-    st.title(f"🪬 Workload learning for {sws} on all {n_workloads} workloads.")
-    st.write("Workloads")
-    st.write(sorted(list(workloads)))
-    # st.write("## ")
-    with st.expander(f"Data [{len(data_df)} samples]"):
-        st.write(data_df.head())
-    with st.expander(f"Training Data [{len(train_df_without_nfp)} samples]"):
-        st.write(train_df_without_nfp.head())
-    if st.sidebar.button("Let's gooooooo 🔥") or no_streamlit:
-        container_summary = st.container()
-        container_reference_models = st.container()
-        container_own_models = st.container()
 
-        with container_summary:
-            st.header("➕ MAPE Summary - Without WL Feature")
-            c1, c2, c3, c4, c5 = st.columns(5)
-            metric_no_wl_dummy = c1.empty()
-            metric_no_wl_lin_reg = c2.empty()
-            metric_no_wl_lin_reg_pairwise = c3.empty()
-            metric_no_wl_RF = c4.empty()
-            metric_no_wl_MCMC = c5.empty()
-            st.write("Diffs compared to linear regression")
-            st.header("➕ MAPE Summary - WITH WL Feature")
-
-            c1, c2, c3, c4, c5 = st.columns(5)
-            metric_with_wl_lin_reg = c1.empty()
-            metric_with_wl_lin_reg_pairwise = c2.empty()
-            metric_with_wl_RF = c3.empty()
-            metric_with_wl_MCMC = c4.empty()
-            metric_with_wl_MCMC_rel = c5.empty()
-            # metric_with_wl_ = c6.empty()
-            st.write("Diffs compared to linear regression")
-
-        if "Baselines" in chosen_models:
-            with container_reference_models:
-                with st.expander(f"〰️ Detailed Baseline Regressions"):
-                    st.header("Baseline Regs WITHOUT WL FEATURE!")
-                    st.write("## 🤤 Dummy Mean Reg")
-                    with st.spinner("Fitting Dummy Regression"):
-                        dummy_regr = DummyRegressor(strategy="mean")
-                        dummy_regr.fit(x_train, y_train)
-                        mape_dummy = st_create_scores(dummy_regr, x_test, y_test)
-                        update_metric(metric_no_wl_dummy, "🤤 Dummy Mean", mape_dummy)
-
-                    st.write("## 📈 Linear Reg")
-                    with st.spinner("Fitting Linear Regression"):
-                        lin_reg = LinearRegression()
-                        lin_reg.fit(x_train_no_wl, y_train)
-                        mape_lin_reg_no_workload_ft = st_create_scores(lin_reg, x_test_no_wl, y_test)
-                        update_metric(metric_no_wl_lin_reg, "📈 Linear Reg", mape_lin_reg_no_workload_ft)
-
-                    st.write("## 💑 Pairwise Lasso Reg")
-                    with st.spinner("Fitting Pairwise Lasso Regression"):
-                        poly = PolynomialFeatures(degree=2, include_bias=False, interaction_only=True)
-                        lin_reg = Lasso()
-                        scaler = MinMaxScaler()
-                        polyreg = make_pipeline(scaler, poly, lin_reg)
-                        polyreg.fit(x_train_no_wl, y_train)
-                        mape_pariwise_lin_reg_no_workload_ft = st_create_scores(polyreg, x_test_no_wl, y_test)
-                        update_metric(metric_no_wl_lin_reg_pairwise, "💑 Pairwise Lasso Reg",
-                                      mape_pariwise_lin_reg_no_workload_ft, mape_lin_reg_no_workload_ft)
-
-                    st.write("## 🌲 RF")
-                    with st.spinner("Fitting RF"):
-                        rf_reg = RandomForestRegressor()
-                        rf_reg.fit(x_train_no_wl, y_train)
-                        mape_RF_reg_no_workload_ft = st_create_scores(rf_reg, x_test_no_wl, y_test)
-                        update_metric(metric_no_wl_RF, "🌲 RF", mape_RF_reg_no_workload_ft, mape_lin_reg_no_workload_ft)
-
-                    st.header("Baseline Regs with workload feature")
-                    st.write("## 📈 Linear Reg")
-                    with st.spinner("📈 Fitting Linear Regression"):
-                        lin_reg = LinearRegression()
-                        lin_reg.fit(x_train, y_train)
-                        mape_lin_reg_with_workload_ft = st_create_scores(lin_reg, x_test, y_test)
-                        update_metric(metric_with_wl_lin_reg, "📈 LinReg", mape_lin_reg_with_workload_ft, )
-
-                    st.write("## 💑 Pairwise Lasso Reg")
-                    with st.spinner("Fitting Pairwise Lasso Regression"):
-                        poly = PolynomialFeatures(degree=2, include_bias=False, interaction_only=True)
-                        lin_reg = Lasso()
-                        scaler = MinMaxScaler()
-                        polyreg = make_pipeline(scaler, poly, lin_reg)
-                        polyreg.fit(x_train, y_train)
-                        mape_pariwise_lin_reg_with_workload_ft = st_create_scores(polyreg, x_test, y_test)
-                        update_metric(metric_with_wl_lin_reg_pairwise, "💑 Pairwise Lasso Reg",
-                                      mape_pariwise_lin_reg_with_workload_ft, mape_lin_reg_with_workload_ft)
-
-                    st.write("## 🌲 RF")
-                    with st.spinner("Fitting RF"):
-                        rf_reg = RandomForestRegressor()
-                        rf_reg.fit(x_train, y_train)
-                        st_create_scores(rf_reg, x_test, y_test)
-                        mape_RF_with_workload_ft = st_create_scores(rf_reg, x_test, y_test)
-                        update_metric(metric_with_wl_RF, "🌲 RF", mape_RF_with_workload_ft,
-                                      mape_lin_reg_with_workload_ft)
-
-        with container_own_models:
-            if "📊 Hyper MCMC" in chosen_models:
-                st.write("## Partially Pooled Hyper MCMC")
-                st.write(
-                    "This model gets the workload feature. It learns an influence for each option and each workload. "
-                    "In addition, it learns a hyper prior aka hyperior of option influences across workloads. "
-                    "This way, we reduce overfitting as we reduce the effective number of parameters compared to "
-                    "a workload-aware model without hyper priors.")
-                with st.spinner("Fitting MCMC"):
-                    mcmc_reg = HierarchicalWorkloadRegressor(y_train, mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
-                    mcmc_reg.fit(x_train, workloads_train, y_train, num_chains)
-                mape_mcmc_agnostic = plot_mcmc_scores(features[:-1], mcmc_reg, num_chains, x_test, workloads_test,
-                                                      y_test)
-                update_metric(metric_no_wl_MCMC, "📊 MCMC Agn", mape_mcmc_agnostic, mape_lin_reg_no_workload_ft)
-            if "📊 WL-Agnostic MCMC" in chosen_models:
-                st.write("## WL-Agnostic MCMC")
-                st.write("This model does not get the workload feature.")
-                with st.spinner("Fitting MCMC"):
-                    mcmc_reg = PyroMCMCWorkloadRegressor(y_train, mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
-                    mcmc_reg.fit(x_train_no_wl, y_train, num_chains)
-                mape_mcmc_agnostic = plot_mcmc_scores(features[:-1], mcmc_reg, num_chains, x_test_no_wl, y_test)
-                update_metric(metric_no_wl_MCMC, "📊 MCMC Agn", mape_mcmc_agnostic, mape_lin_reg_no_workload_ft)
-            if "📊 Linear MCMC" in chosen_models:
-                st.write("## Linear MCMC")
-                st.write("This model gets the workload feature but treats it as a regular option.")
-                with st.spinner("Fitting MCMC Model"):
-                    mcmc_reg = PyroMCMCWorkloadRegressor(y_train, mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
-                    mcmc_reg.fit(x_train, y_train, num_chains)
-                mape_mcmc_with_wl = plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, y_test)
-                update_metric(metric_with_wl_MCMC, "📊 MCMC Lin", mape_mcmc_with_wl, mape_lin_reg_with_workload_ft)
-            if "📊 RelWL MCMC Model" in chosen_models:
-                st.write("## RelWL MCMC Model")
-                st.write(
-                    "This model gets the workload feature and learns a relative transfer of computed performance values between workloads. "
-                    "Hence, the model does not differenciate between different option influence.")
-                with st.spinner("Fitting RelWL MCMC Model"):
-                    rel_wl_mcmc_reg = RelativeScalingWorkloadRegressor(y_train, mcmc_samples=mcmc_samples,
-                                                                       mcmc_tune=mcmc_tune)
-                    rel_wl_mcmc_reg.fit(x_train, y_train, num_chains)
-                mape_mcmc_with_wl_rel = plot_mcmc_scores(features, rel_wl_mcmc_reg, num_chains, x_test, y_test)
-                update_metric(metric_with_wl_MCMC_rel, "📊 MCMC Rel", mape_mcmc_with_wl_rel,
-                              mape_lin_reg_with_workload_ft)
-
-        st.balloons()
+    st.write("## Partially Pooled Hyper MCMC")
+    st.write(
+        "This model gets the workload feature. It learns an influence for each option and each workload. "
+        "In addition, it learns a hyper prior aka hyperior of option influences across workloads. "
+        "This way, we reduce overfitting as we reduce the effective number of parameters compared to "
+        "a workload-aware model without hyper priors.")
+    with st.spinner("Fitting MCMC"):
+        mcmc_reg = HierarchicalWorkloadRegressor(y_train, mcmc_samples=mcmc_samples, mcmc_tune=mcmc_tune)
+        mcmc_reg.fit(x_train, workloads_train, y_train, num_chains)
+    mape_mcmc_agnostic = plot_mcmc_scores(features[:-1], mcmc_reg, num_chains, x_test, workloads_test,
+                                          y_test)
+    # update_metric(metric_no_wl_MCMC, "📊 MCMC Agn", mape_mcmc_agnostic, mape_lin_reg_no_workload_ft)
 
 
 def plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, workloads, y_test):
@@ -763,13 +767,14 @@ def plot_mcmc_scores(features, mcmc_reg, num_chains, x_test, workloads, y_test):
     if not os.path.isdir(dir_path):
         os.mkdir(dir_path, )
     st.graphviz_chart(graph)
+    unique_workloads = np.unique(workloads)
     with st.spinner("Plotting"):
-        coords = {"features": features}
-        dims = {"coefs": ["features"]}
+        coords = {
+            "features": features, "workloads": unique_workloads}
+        dims = {"coefs": ["workloads", "features"], "base": ["workloads"]}
         idata_kwargs = {
             "dims": dims,
             "coords": coords,
-            # "constant_data": {"x": xdata}
         }
         az_data = az.from_numpyro(mcmc_reg.mcmc_fitted, num_chains=num_chains, **idata_kwargs)
         az.plot_trace(az_data, )  # compact=True, var_names=("base", "coefs"))
