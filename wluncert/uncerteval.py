@@ -11,8 +11,8 @@ import sklearn.preprocessing
 from numpyro.handlers import reparam
 from numpyro.infer.reparam import LocScaleReparam
 import numpy
-from numpyro.infer import Predictive, MCMC as npMCMC, NUTS as npNUTS, BarkerMH as npBMH, HMC as npHMC, SA
-
+from numpyro.infer import Predictive, MCMC as npMCMC, NUTS as npNUTS, BarkerMH as npBMH, HMC as npHMC, SA, \
+    log_likelihood
 import os
 from jax import random
 import numpy as np
@@ -24,13 +24,14 @@ from numpyro.infer.reparam import LocScaleReparam
 from pycosa.util import remove_multicollinearity
 from sklearn.model_selection import train_test_split
 from abc import ABC
-
+from datetime import datetime
 from sklearn.preprocessing import MinMaxScaler, StandardScaler, PolynomialFeatures
 # from wluncert.multilevel import get_jump3r_df
 # from wluncert.wlbench import get_train_df, wl_model_reparam
 from multilevel import get_jump3r_df
 from wlbench import get_train_df, wl_model_reparam
 import pickle
+import pprint
 
 numpyro.set_host_device_count(3)
 
@@ -71,10 +72,12 @@ class DataProvider(ABC):
 
 
 class DfDataProvider(DataProvider):
-    def __init__(self, label: str, df: pd.DataFrame, train_ratio=None, train_number_abs=None, rnd=0):
+    def __init__(self, label: str, df: pd.DataFrame, train_ratio=None, train_number_abs=None, rnd=0,
+                 stratify_by_wl=False):
         super(DfDataProvider, self).__init__()
         self.len_whole_pop = len(df)
         self.df: pd.DataFrame = df
+        self.stratify_by_wl = stratify_by_wl
         self.train_ratio = train_ratio
         self.train_number_abs = train_number_abs
         self.rnd = rnd
@@ -85,7 +88,8 @@ class DfDataProvider(DataProvider):
 
         df_no_multicollinearity = remove_multicollinearity(self.df.iloc[:, :-2])
         cleared_sys_df = copy.deepcopy(df_no_multicollinearity)
-        self.df.iloc[:, :-2] = cleared_sys_df
+        cleared_sys_df[self.df.columns[-2:]] = self.df.iloc[:, -2:]
+        self.df = cleared_sys_df
 
     def get_train_test_data(self):
         if self.train_data is None:
@@ -98,12 +102,17 @@ class DfDataProvider(DataProvider):
                 if self.train_number_abs > self.len_whole_pop or self.train_number_abs < 0:
                     raise Exception(
                         f"Abs train samples number must be > 0 an smaller than size of provided df, which is {self.len_whole_pop}")
+
+            if self.stratify_by_wl:
+                stratify = self.df.iloc[:, -2]
+            else:
+                stratify = None
             if self.train_ratio:
                 self.train_data, self.test_data = train_test_split(self.df, train_size=self.train_ratio,
-                                                                   random_state=self.rnd)
+                                                                   random_state=self.rnd, stratify=stratify)
             else:
                 self.train_data, self.test_data = train_test_split(self.df, train_size=self.train_number_abs,
-                                                                   random_state=self.rnd)
+                                                                   random_state=self.rnd, stratify=stratify)
         return self.train_data, self.test_data
 
     def get_label(self):
@@ -119,8 +128,8 @@ class StandardizerByTrainSet(DataProvider):
         wl_name = self.train_data.columns[-2]
         nfp_name = self.train_data.columns[-1]
         nfp_grouped_by_wl = self.train_data.iloc[:, -2:].groupby([wl_name])
-        self.wl_means = nfp_grouped_by_wl.mean().to_dict()[nfp_name]
-        self.wl_stds = nfp_grouped_by_wl.std().to_dict()[nfp_name]
+        self.wl_means = nfp_grouped_by_wl[nfp_name].mean().to_dict()
+        self.wl_stds = nfp_grouped_by_wl[nfp_name].std().to_dict()
         # standardized_nfps_by_wl = nfp_grouped_by_wl.transform(lambda x: (x - x.mean()) / x.std())
         # self.train_data.iloc[:, -1] = standardized_nfps_by_wl
 
@@ -134,15 +143,16 @@ class StandardizerByTrainSet(DataProvider):
             self.train_data.loc[self.train_data[wl_name] == group_id, nfp_name] -= g_mean
             self.train_data.loc[self.train_data[wl_name] == group_id, nfp_name] /= g_std
 
-        train_nfp = self.train_data.iloc[:, -1]
-        test_nfp = self.test_data.iloc[:, -1]
+        self.data = pd.concat([self.train_data, self.test_data])
+        self.train_nfp = self.train_data.iloc[:, -1]
+        self.test_nfp = self.test_data.iloc[:, -1]
 
         # train_nfp_scaler = StandardScaler()
         # self.train_data.iloc[:, -1] = train_nfp_scaler.fit_transform(np.atleast_2d(train_nfp.to_numpy()).T).T.squeeze()
         # self.test_data.iloc[:, -1] = train_nfp_scaler.fit_transform(np.atleast_2d(test_nfp.to_numpy()).T).T.squeeze()
 
-        train_features = self.train_data.iloc[:, :-2]
-        test_features = self.test_data.iloc[:, :-2]
+        self.train_features = self.train_data.iloc[:, :-2]
+        self.test_features = self.test_data.iloc[:, :-2]
         # train_feature_scaler = StandardScaler()
         # self.train_data.iloc[:, :-2] = train_feature_scaler.fit_transform(train_features)
         # self.test_data.iloc[:, :-2] = train_feature_scaler.transform(test_features)
@@ -161,9 +171,9 @@ class StandardizerByTrainSet(DataProvider):
 
 
 class Jump3rDataProvider(DfDataProvider):
-    def __init__(self, *args, **kwargs):
-        super(Jump3rDataProvider, self).__init__(*args, **kwargs)
-        self.df = self.get_jump3r_df_keep_workloads(self.df)
+    def __init__(self, df, *args, **kwargs):
+        self.df = self.get_jump3r_df_keep_workloads(df)
+        super(Jump3rDataProvider, self).__init__("Jump3r", self.df, *args, **kwargs)
 
     def get_jump3r_df(self, df):
         mono_stereo_df = df[df["workload"].isin(["dual-channel.wav", "single-channel.wav"])]
@@ -203,8 +213,12 @@ class PyroModel(ABC):
         pass
 
 
-class AbsoluteInfWLModel(PyroModel):
-    label = "Hyperiors-for-abs-infs"
+class NoPoolingModel(PyroModel):
+    label = "no-pooling"
+
+    def __init__(self, prior_method_call=None):
+        super().__init__()
+        self.prior_method_call = prior_method_call if prior_method_call is not None else npdist.Normal
 
     def get_model(self):
         reparam_config = {
@@ -227,7 +241,233 @@ class AbsoluteInfWLModel(PyroModel):
         stddev_exp_prior = stddev_nfp  # 1
 
         with numpyro.plate("options", num_opts):
-            hyper_coef_means = numpyro.sample("abs-means-hyper", npdist.Normal(0, joint_coef_stdev), )
+            with numpyro.plate("workloads", n_workloads):
+                rnd_influences = numpyro.sample("influences", self.prior_method_call(0, joint_coef_stdev), )
+
+        with numpyro.plate("workloads", n_workloads):
+            bases = numpyro.sample("base", self.prior_method_call(0, joint_coef_stdev))
+
+        respective_influences = rnd_influences[workloads]
+        respective_bases = bases[workloads]
+        result_arr = jnp.multiply(data, respective_influences)
+        result_arr = result_arr.sum(axis=1).ravel() + respective_bases
+        prior_error_expt = 1.0
+        error_var = numpyro.sample("error", npdist.Exponential(prior_error_expt))
+
+        with numpyro.plate("data", result_arr.shape[0]):
+            obs = numpyro.sample("observations", npdist.Normal(result_arr, error_var), obs=reference_y)
+        return obs
+
+    def get_arviz_dims(self):
+        dims = {
+            "influences": ["workloads", "features"],
+            "influences_decentered": ["workloads", "features"],
+            "base": ["workloads"],
+            "base_decentered": ["workloads"],
+        }
+        return dims
+
+    def get_label(self):
+        return self.__class__.label
+
+
+class CompletePoolingModel(PyroModel):
+    label = "complete-pooling"
+
+    def __init__(self, prior_method_call=None):
+        super().__init__()
+        self.prior_method_call = prior_method_call if prior_method_call is not None else npdist.Normal
+
+    def get_model(self):
+        return self.model_raw
+
+    def model_raw(self, data, workloads, n_workloads, reference_y=None):
+        workloads = jnp.array(workloads)
+        if reference_y is not None:
+            mean_nfp = jnp.mean(reference_y)
+            stddev_nfp = jnp.std(reference_y)
+        else:
+            y_order_of_magnitude = 1
+            stddev_nfp = 1
+        joint_coef_stdev = stddev_nfp  # 1
+        num_opts = data.shape[1]
+        stddev_exp_prior = stddev_nfp  # 1
+
+        with numpyro.plate("options", num_opts):
+            rnd_influences = numpyro.sample("influences", self.prior_method_call(0, joint_coef_stdev), )
+
+        base = numpyro.sample("base", self.prior_method_call(0, joint_coef_stdev))
+        result_arr = jnp.multiply(data, rnd_influences)
+        result_arr = result_arr.sum(axis=1).ravel() + base
+        prior_error_expt = 1.0
+        error_var = numpyro.sample("error", npdist.Exponential(prior_error_expt))
+
+        with numpyro.plate("data", result_arr.shape[0]):
+            obs = numpyro.sample("observations", npdist.Normal(result_arr, error_var), obs=reference_y)
+        return obs
+
+    def get_arviz_dims(self):
+        dims = {
+            "influences": ["features"],
+        }
+        return dims
+
+    def get_label(self):
+        return self.__class__.label
+
+
+class MultilevelLassoModel(PyroModel):
+    label = "Hyperiors-Lasso"
+
+    def get_model(self):
+        reparam_config = {
+            "influences": LocScaleReparam(0),
+            "base": LocScaleReparam(0),
+            # "abs-means-hyper": LocScaleReparam(0),
+        }
+        reparam_model = reparam(self.model_raw, config=reparam_config)
+        return reparam_model
+
+    def model_raw(self, data, workloads, n_workloads, reference_y=None):
+        workloads = jnp.array(workloads)
+        if reference_y is not None:
+            mean_nfp = jnp.mean(reference_y)
+            stddev_nfp = jnp.std(reference_y)
+        else:
+            y_order_of_magnitude = 1
+            stddev_nfp = 1
+        joint_coef_stdev = stddev_nfp  # 1
+        num_opts = data.shape[1]
+        stddev_exp_prior = stddev_nfp  # 1
+
+        with numpyro.plate("options", num_opts):
+            hyper_coef_means = numpyro.sample("options-means-hyper",
+                                              npdist.Laplace(0, joint_coef_stdev), )
+            hyper_coef_stddevs = numpyro.sample("options-stddevs-hyper", npdist.Exponential(stddev_exp_prior), )
+
+        hyper_base_mean = numpyro.sample("base mean hyperior", npdist.Normal(0, joint_coef_stdev), )
+        hyper_base_stddev = numpyro.sample("base stddevs hyperior", npdist.Exponential(stddev_exp_prior), )
+
+        with numpyro.plate("options", num_opts):
+            with numpyro.plate("workloads", n_workloads):
+                rnd_influences = numpyro.sample("influences", npdist.Normal(hyper_coef_means, hyper_coef_stddevs), )
+
+        with numpyro.plate("workloads", n_workloads):
+            bases = numpyro.sample("base", npdist.Normal(hyper_base_mean, hyper_base_stddev))
+
+        respective_influences = rnd_influences[workloads]
+        respective_bases = bases[workloads]
+        result_arr = jnp.multiply(data, respective_influences)
+        result_arr = result_arr.sum(axis=1).ravel() + respective_bases
+        prior_error_expt = 1.0
+        error_var = numpyro.sample("error", npdist.Exponential(prior_error_expt))
+
+        with numpyro.plate("data", result_arr.shape[0]):
+            obs = numpyro.sample("observations", npdist.Normal(result_arr, error_var), obs=reference_y)
+        return obs
+
+    def get_arviz_dims(self):
+        dims = {
+            "influences": ["workloads", "features"],
+            "influences_decentered": ["workloads", "features"],
+            "base": ["workloads"],
+            "base_decentered": ["workloads"],
+            "options-means-hyper": ["features"],
+            "options-stddevs-hyper": ["features"],
+        }
+        return dims
+
+
+class MetaMetaWLModelLasso(PyroModel):
+    label = "Meta-Hyperiors-Lasso"
+
+    def get_model(self):
+        reparam_config = {
+            "influences": LocScaleReparam(0),
+            "base": LocScaleReparam(0),
+            "abs-means-hyper": LocScaleReparam(0),
+        }
+        reparam_model = reparam(self.model_raw, config=reparam_config)
+        return reparam_model
+
+    def model_raw(self, data, workloads, n_workloads, reference_y=None):
+        workloads = jnp.array(workloads)
+        if reference_y is not None:
+            mean_nfp = jnp.mean(reference_y)
+            stddev_nfp = jnp.std(reference_y)
+        else:
+            y_order_of_magnitude = 1
+            stddev_nfp = 1
+        joint_coef_stdev = stddev_nfp  # 1
+        num_opts = data.shape[1]
+        stddev_exp_prior = stddev_nfp  # 1
+
+        hyper_option_mean = numpyro.sample("meta-means-hyper", npdist.Exponential(stddev_exp_prior), )
+
+        with numpyro.plate("options", num_opts):
+            hyper_coef_means = numpyro.sample("abs-means-hyper",
+                                              npdist.Laplace(0, hyper_option_mean), )
+            hyper_coef_stddevs = numpyro.sample("abs-stddevs-hyper", npdist.Exponential(stddev_exp_prior), )
+
+        hyper_base_mean = numpyro.sample("base mean hyperior", npdist.Laplace(0, joint_coef_stdev), )
+        hyper_base_stddev = numpyro.sample("base stddevs hyperior", npdist.Exponential(stddev_exp_prior), )
+
+        with numpyro.plate("options", num_opts):
+            with numpyro.plate("workloads", n_workloads):
+                rnd_influences = numpyro.sample("influences", npdist.Normal(hyper_coef_means, hyper_coef_stddevs), )
+
+        with numpyro.plate("workloads", n_workloads):
+            bases = numpyro.sample("base", npdist.Laplace(hyper_base_mean, hyper_base_stddev))
+
+        respective_influences = rnd_influences[workloads]
+        respective_bases = bases[workloads]
+        result_arr = jnp.multiply(data, respective_influences)
+        result_arr = result_arr.sum(axis=1).ravel() + respective_bases
+        prior_error_expt = 1.0
+        error_var = numpyro.sample("error", npdist.Exponential(prior_error_expt))
+
+        with numpyro.plate("data", result_arr.shape[0]):
+            obs = numpyro.sample("observations", npdist.Normal(result_arr, error_var), obs=reference_y)
+        return obs
+
+    def get_arviz_dims(self):
+        dims = {
+            "influences": ["workloads", "features"],
+            "influences_decentered": ["workloads", "features"],
+            "base": ["workloads"],
+            "base_decentered": ["workloads"],
+            "abs-means-hyper": ["features"],
+            "abs-stddevs-hyper": ["features"],
+        }
+        return dims
+
+
+class AbsoluteInfMetaWLModelRidge(PyroModel):
+    label = "Hyperiors-Ridge"
+
+    def get_model(self):
+        reparam_config = {
+            "influences": LocScaleReparam(0),
+            "base": LocScaleReparam(0),
+        }
+        reparam_model = reparam(self.model_raw, config=reparam_config)
+        return reparam_model
+
+    def model_raw(self, data, workloads, n_workloads, reference_y=None):
+        workloads = jnp.array(workloads)
+        if reference_y is not None:
+            mean_nfp = jnp.mean(reference_y)
+            stddev_nfp = jnp.std(reference_y)
+        else:
+            y_order_of_magnitude = 1
+            stddev_nfp = 1
+        joint_coef_stdev = stddev_nfp  # 1
+        num_opts = data.shape[1]
+        stddev_exp_prior = stddev_nfp  # 1
+
+        with numpyro.plate("options", num_opts):
+            hyper_coef_means = numpyro.sample("abs-means-hyper",
+                                              npdist.Normal(0, joint_coef_stdev), )
             hyper_coef_stddevs = numpyro.sample("abs-stddevs-hyper", npdist.Exponential(stddev_exp_prior), )
 
         hyper_base_mean = numpyro.sample("base mean hyperior", npdist.Normal(0, joint_coef_stdev), )
@@ -262,12 +502,79 @@ class AbsoluteInfWLModel(PyroModel):
         }
         return dims
 
+
+class HorseshoeModel(PyroModel):
+    label = "Horseshoe"
+
+    def get_model(self):
+        reparam_config = {
+            "influences": LocScaleReparam(0),
+            "base": LocScaleReparam(0),
+        }
+        reparam_model = reparam(self.model_raw, config=reparam_config)
+        return reparam_model
+
+    def model_raw(self, data, workloads, n_workloads, reference_y=None):
+        workloads = jnp.array(workloads)
+        if reference_y is not None:
+            mean_nfp = jnp.mean(reference_y)
+            stddev_nfp = jnp.std(reference_y)
+        else:
+            y_order_of_magnitude = 1
+            stddev_nfp = 1
+        joint_coef_stdev = stddev_nfp  # 1
+        num_opts = data.shape[1]
+        stddev_exp_prior = stddev_nfp  # 1
+
+        # tau: global scale
+        tau = numpyro.sample("tau-global", npdist.HalfCauchy(1))
+        with numpyro.plate("options", num_opts):
+            hyper_coef_means = numpyro.sample("abs-means-hyper",
+                                              npdist.Normal(0, stddev_exp_prior), )
+            hyper_coef_stddevs = numpyro.sample("abs-stddevs-hyper", npdist.Exponential(stddev_exp_prior), )
+
+        hyper_base_mean = numpyro.sample("base mean hyperior", npdist.Normal(0, joint_coef_stdev), )
+        hyper_base_stddev = numpyro.sample("base stddevs hyperior", npdist.Exponential(stddev_exp_prior), )
+
+        with numpyro.plate("options", num_opts):
+            with numpyro.plate("workloads", n_workloads):
+                # horseshoe
+                activision = numpyro.sample("lambdas-activ", npdist.HalfCauchy(1))
+                horseshoe = numpyro.deterministic("horseshoe", activision * tau)
+                rnd_influences = numpyro.sample("influences",
+                                                npdist.Normal(hyper_coef_means, hyper_coef_stddevs * horseshoe), )
+
+        with numpyro.plate("workloads", n_workloads):
+            bases = numpyro.sample("base", npdist.Normal(hyper_base_mean, hyper_base_stddev))
+
+        respective_influences = rnd_influences[workloads]
+        respective_bases = bases[workloads]
+        result_arr = jnp.multiply(data, respective_influences)
+        result_arr = result_arr.sum(axis=1).ravel() + respective_bases
+        prior_error_expt = 1.0
+        error_var = numpyro.sample("error", npdist.Exponential(prior_error_expt))
+
+        with numpyro.plate("data", result_arr.shape[0]):
+            obs = numpyro.sample("observations", npdist.Normal(result_arr, error_var), obs=reference_y)
+        return obs
+
+    def get_arviz_dims(self):
+        dims = {
+            "influences": ["workloads", "features"],
+            "influences_decentered": ["workloads", "features"],
+            "base": ["workloads"],
+            "base_decentered": ["workloads"],
+            "abs-means-hyper": ["features"],
+            "abs-stddevs-hyper": ["features"],
+        }
+        return dims
+
     def get_label(self):
-        return AbsoluteInfWLModel.label
+        return self.label
 
 
 class ModelFitter:
-    def __init__(self, model: PyroModel, rnd=0, num_samples=500, num_warmup=500):
+    def __init__(self, model: PyroModel, rnd=1, num_samples=1500, num_warmup=1000):
         self.nfp_name = None
         self.workload_characteristic = None
         self.feature_names = None
@@ -297,8 +604,17 @@ class ModelFitter:
         X, workload_per_df_row, n_workloads, nfp = self.get_model_params_from_df(df)
         self.mcmc.run(rng_key, X, workload_per_df_row, n_workloads, nfp)
 
+    def refit(self, df, rnd=None):
+        rnd = self.rnd if rnd is None else rnd
+        rng_key = random.PRNGKey(rnd)
+        X, workload_per_df_row, n_workloads, nfp = self.get_model_params_from_df(df)
+        self.mcmc.run(rng_key, X, workload_per_df_row, n_workloads, nfp)
+
+
+
     def get_model_params_from_df(self, df):
         cols = df.columns
+        feature_names = list(cols[:-2])
         self.workload_characteristic = cols[-2]
         self.nfp_name = cols[-1]
         workload_per_df_row = df[self.workload_characteristic].to_numpy()
@@ -307,7 +623,7 @@ class ModelFitter:
         self.workload_levels, workload_ids_per_row = np.unique(workload_per_df_row, return_inverse=True)
         n_workloads = len(self.workload_levels)
         nfp = jnp.array(nfp_per_df_row.to_numpy())
-        X = df[self.feature_names].to_numpy()
+        X = df[feature_names].to_numpy()
         X = jnp.array(X, dtype=int)
         return X, workload_ids_per_row, n_workloads, nfp
 
@@ -325,7 +641,8 @@ class ModelFitter:
             az_data = az.from_numpyro(self.mcmc, num_chains=self.n_chains, **idata_kwargs)
         else:
             predictions = self.predict(posterior_predictive_df)
-            predictions = self._predict_samples(posterior_predictive_df, n_samples=100)
+            n_samples = 100
+            predictions = self._predict_samples(posterior_predictive_df, n_samples=n_samples)
             ground_truth_to_pred_map = dict(zip(list(posterior_predictive_df["nfp"]), predictions))
             posterior_inference_data = az.convert_to_inference_data(ground_truth_to_pred_map)
             az_data = az.from_numpyro(self.mcmc, num_chains=self.n_chains, posterior_predictive=predictions,
@@ -368,7 +685,7 @@ class ModelFitter:
             y_samples = np.array(y_samples)
             y_pred = np.mean(az.hdi(y_samples, hdi_prob=0.01), axis=1)
         else:
-            y_samples = self._predict_samples(df, n_samples=n_samples)
+            y_samples = np.array(self._predict_samples(df, n_samples=n_samples))
             if ci:
                 y_pred = az.hdi(y_samples, hdi_prob=ci)
             else:
@@ -388,6 +705,9 @@ class UncertEvaluator:
             result = self.eval_single_dataset(provider, predictor, do_plots=do_plots)
             results[label] = result
         return results
+
+
+
 
     def eval_single_dataset(self, provider: DataProvider, predictor: PyroModel, do_plots=True):
         data_lbl = provider.get_label()
@@ -411,26 +731,19 @@ class UncertEvaluator:
         print(waic_data)
         print(waic_data.waic_i)
 
+        psis = az.loo(az_data)
+        elpd_psis = psis.loo
+        penalty_psis = psis.p_loo
+
         result_dict = {
-            "effective_number_of_parameters": effective_number_of_parameters,
-            "elpd_waic": elpd_waic,
+            "effective_number_of_parameters_waic": effective_number_of_parameters,
+            "elpd_waic": elpd_psis,
+            "penalty_psis": penalty_psis,
+            "elpd_psis": elpd_psis,
+
             "arviz_data": az_data,
             "mcmc": model_fitter.mcmc
         }
-
-        if "jump" in str(data_lbl).lower():
-            # coords = {"features": ["Highpass",]}
-            # var_names = ["influences"]
-            # az.plot_posterior(az_data, coords=coords, var_names=var_names);plt.show()
-            # features = list(provider.train_data.columns)
-            # plot_df = az_data.to_dataframe()
-            # for feature in features:
-            #     feature_cols = [x for x in list(plot_df.columns) if feature in x]
-            #     hyper_col = [x for x in feature_cols if "hyper" in x[1] and "means" in x[1]]
-            #     feature_cols = [x for x in feature_cols if "hyper" not in x[1] and "decentered" not in x[1]]
-            #     sns.displot(data=plot_df[feature_cols].melt(), hue="variable", x="value")
-            #     plt.show()
-            pass
 
         if do_plots:
             self.do_plots(az_data, experiment_label)
@@ -442,17 +755,20 @@ class UncertEvaluator:
         os.makedirs("results", exist_ok=True)
         self.store_and_show_plot(experiment_label)
         # az.plot_ppc(az_data, legend=True);
-        az.plot_trace(az_data, legend=True)
-        self.store_and_show_plot(experiment_label)
+
+        # az.plot_trace(az_data, legend=True)
+        # self.store_and_show_plot(experiment_label)
+
         az.plot_trace(az_data, legend=False, )
         self.store_and_show_plot(experiment_label)
 
-    def store_and_show_plot(self, experiment_label):
+    def store_and_show_plot(self, experiment_label, show=False):
         plt.suptitle(str(experiment_label))
         plt.tight_layout()
         plt.savefig(f"results/{experiment_label}-posterior.pdf")
         plt.savefig(f"results/{experiment_label}-posterior.png")
-        plt.show()
+        if show:
+            plt.show()
 
 
 def main():
@@ -477,29 +793,58 @@ def main():
 
 
 def main_grid_artif():
-    random_seed = 10
-    const = [2, 1, 0.5, *([10 ** -1] * 3)]
-    rel = [30 * 10 ** -2, 5 * 10 ** -2, 1 * 10 ** -2, ]
-    # lengths = [1, 30, 100]
+    model_constructors = {
+        # "no-pooling-gauss": NoPoolingModel,
+        # "no-pooling-laplace": lambda: NoPoolingModel(prior_method_call=npdist.Laplace),
+        # "MultiLevelGaussRidge": AbsoluteInfMetaWLModelRidge,
+        # "MultiLevelLaplaceLasso": AbsoluteInfMetaWLModelLasso,
+        # "MultiLevelHorseshoe": HorseshoeModel,
+        "MultiLevelMetaLasso": MetaMetaWLModelLasso,
+    }
+    all_results = {}
+    currentDateAndTime = datetime.now()
+    timestamp = currentDateAndTime.strftime("%Y-%m-%d %H-%M-%S")
+    os.makedirs(f"results/{timestamp}")
+    for label, model_constructor in model_constructors.items():
+        random_seed = 10
+        n_non_infnluential = 10
+        const = [2, 1, 0.5, *([10 ** -1] * n_non_infnluential)]
+        rel = [30 * 10 ** -2, 5 * 10 ** -2, 1 * 10 ** -2, ]
+        lengths = [1, 20, 100, 300]
+        train_number_abs = 100
+        raw_provider = get_train_df_provider_configurable(const, rel, lengths, train_number_abs=train_number_abs)
+        std_provider = StandardizerByTrainSet(raw_provider)
+        providers = [std_provider]
+        evaluator = UncertEvaluator(providers, rnd=random_seed)
+        model = model_constructor()
+        results = evaluator.eval(model, do_plots=True)
+        dump_file = f"results/lastrun-{label}.p"
+        print(f"dumping results to {dump_file}")
+        pickle.dump(results, open(dump_file, "wb"))
 
-    lengths = [1, 20, 100]
-    raw_provider = get_train_df_provider_configurable(const, rel, lengths)
-    std_provider = StandardizerByTrainSet(raw_provider)
-    providers = [std_provider]
-    evaluator = UncertEvaluator(providers, rnd=random_seed)
-    wl_model_simple = AbsoluteInfWLModel()
-    results = evaluator.eval(wl_model_simple, do_plots=True)
-    dump_file = "results/lastrun.p"
-    print(f"dumping results to {dump_file}")
-    pickle.dump(results, open(dump_file, "wb"))
-    print(results)
+        for datakey, r in results.items():
+            fname = f"results-{label}-{datakey}"
+            new_r = {**r}
+            new_r.pop('arviz_data', None)
+            new_r.pop('mcmc', None)
+            pretty_dict_str = pprint.pformat(new_r)
+            with open(f"results/{timestamp}/{fname}.txt", "w") as text_file:
+                text_file.write(pretty_dict_str)
+            all_results[label] = new_r
+
+        pretty_dict_str = pprint.pformat(all_results)
+        models_concat = "-".join(model_constructors)
+        fname = f"modelcomp-{models_concat}"
+        with open(f"results/{timestamp}/{fname}.txt", "w") as text_file:
+            text_file.write(pretty_dict_str)
+        print(results)
 
 
 def get_3_vars_data():
     linear_scaling_for_whole_runtime_opt_infs = np.linspace(0, 1, 3)
     relative_influences_for_workload_dependent_opt = np.linspace(0, 1, 3)
     infl_workload_independent_opt = np.linspace(10, 100, 3)
-    lengths = [5, 30, 100, 300]
+    lengths = [5, 30, 100, ]
     providers = []
     grid = list(
         itertools.product(linear_scaling_for_whole_runtime_opt_infs, relative_influences_for_workload_dependent_opt,
@@ -516,7 +861,7 @@ def get_3_vars_data():
 
 
 def get_train_df_provider_configurable(influence_option_constant_time_modifyers, influence_option_relative_ratios,
-                                       lengths, rel_noise = 0.01):
+                                       lengths, rel_noise=0.01, train_number_abs=50):
     feature_constant_time = "const"
     f_names_const = get_ft_names_for_vals(feature_constant_time, influence_option_constant_time_modifyers)
     feature_relative = "relative"
@@ -548,10 +893,16 @@ def get_train_df_provider_configurable(influence_option_constant_time_modifyers,
 
     provider = DfDataProvider(
         f"ArtificialRelAbsWL", df,
-        train_number_abs=50)
+        train_number_abs=train_number_abs)
     providers.append(provider)
 
     return provider
+
+
+def get_plot_method(model, df):
+    fitter = ModelFitter(model)
+    X, workload_per_df_row, n_workloads, nfp = fitter.get_model_params_from_df(df)
+    return lambda: numpyro.render_model(model.model_raw, model_args=[X, workload_per_df_row, n_workloads, nfp])
 
 
 def get_ft_names_for_vals(feature_constant_time, influence_option_constant_time_modifyers):
