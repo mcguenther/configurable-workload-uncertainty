@@ -1,0 +1,9 @@
+jupyterlab
+RISE
+numpy
+pandas
+pycosat
+Pillow
+scipy
+matplotlib
+seaborn
