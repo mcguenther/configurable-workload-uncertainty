@@ -6,14 +6,18 @@ import pandas as pd
 from pycosa import util
 import numpy as np
 from sklearn.model_selection import train_test_split
-
+from sklearn.preprocessing import StandardScaler
 
 class SingleEnvData:
     def __init__(self, df: pd.DataFrame, environment_col_name, nfps):
-        self.df = df
-        self.env_name = list(self.df[environment_col_name].unique())[0]
-        self.df.drop(columns=[environment_col_name])
+        self.df_raw = df
+        self.df = copy.deepcopy(self.df_raw)
+        self.env_col_name = environment_col_name
+        self.env_id = list(self.df[environment_col_name].unique())[0]
+        self.df = self.df.drop(columns=[environment_col_name])
         self.nfps = list(nfps)
+        self.std = None
+        self.mean = None
 
     def get_selected_nfp_name(self):
         return self.nfps[0]
@@ -29,8 +33,8 @@ class SingleEnvData:
     def get_X(self):
         cols = list(copy.deepcopy(self.df.columns))
         # cols.remove([self.environment_col_name, *self.nfps])
-        cols.remove(self.nfps)
-        x = self.df[cols]
+        new_cols = [c for c in cols if c not in self.nfps]
+        x = self.df[new_cols]
         return x
 
     def get_y(self, nfp_name=None):
@@ -38,6 +42,14 @@ class SingleEnvData:
             nfp_name = self.get_selected_nfp_name()
         y = np.array(self.df[nfp_name])
         return y
+
+    def get_split(self, n_train_samples_abs=None, n_train_samples_rel_opt_num=None, rnd=0):
+        n_opts = self.get_n_options()
+        absolute_train_size = n_train_samples_abs if n_train_samples_rel_opt_num is None else n_train_samples_rel_opt_num * n_opts
+        df_train, df_test = train_test_split(self.df_raw, train_size=absolute_train_size, random_state=rnd)
+        train_data = SingleEnvData(df_train, self.env_col_name, self.nfps)
+        test_data = SingleEnvData(df_test, self.env_col_name, self.nfps)
+        return SingleEnvDataTrainTestSplit(train_data, test_data)
 
     def normalize(self, mean=None, std=None):
         """
@@ -50,14 +62,19 @@ class SingleEnvData:
         mean = np.mean(y) if mean is None else mean
         std = np.std(y) if std is None else std
         y_norm = (y - mean) / std
-        new_df = copy.deepcopy(self.df)
+        new_df = copy.deepcopy(self.df_raw)
         nfp_name = self.get_selected_nfp_name()
         new_df[nfp_name] = y_norm
         unconsidered_nfp = set(self.nfps) - {nfp_name}
-        if len(unconsidered_nfp) > 1:
+        if len(unconsidered_nfp) > 0:
             new_df = new_df.drop(columns=list(unconsidered_nfp))
-        new_data = SingleEnvData(new_df, self.env_name, [nfp_name])
+        new_data = SingleEnvData(new_df, self.env_col_name, [nfp_name])
+        self.std = std
+        self.mean = mean
         return new_data, mean, std
+
+    def un_normalize(self, scalar):
+        return scalar * self.std + self.mean
 
 
 class SingleEnvDataTrainTestSplit:
@@ -69,7 +86,7 @@ class SingleEnvDataTrainTestSplit:
 
     def normalize(self):
         self.train_data, self.mean, self.std = self.train_data.normalize()
-        self.test_data = self.test_data.normalize(self.mean, self.std)
+        self.test_data, _, _ = self.test_data.normalize(self.mean, self.std)
         return self.train_data, self.test_data, self.mean, self.std
 
     def un_normalize_scalar(self, scalar):

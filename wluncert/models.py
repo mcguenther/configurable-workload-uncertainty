@@ -1,5 +1,7 @@
 import sys
 import time
+from typing import List
+
 from matplotlib import pyplot as plt
 from sklearn.base import BaseEstimator, RegressorMixin
 from abc import ABC, abstractmethod
@@ -13,6 +15,11 @@ from jax import random, jit
 from numpyro.handlers import condition as npcondition, seed as npseed, substitute as npsubstitute, trace as nptrace
 import arviz as az
 import numpyro
+
+from sklearn.linear_model import Lasso
+from sklearn.feature_selection import SelectFromModel
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import PolynomialFeatures
 import math
 import os
 
@@ -31,6 +38,8 @@ import pandas as pd
 
 from numpyro.handlers import reparam
 from numpyro.infer.reparam import LocScaleReparam
+
+from wluncert.data import SingleEnvData
 
 numpyro.set_host_device_count(8)
 import copy
@@ -61,8 +70,9 @@ class NumPyroRegressor(ABC, BaseEstimator, RegressorMixin):
         pass
 
     @abstractmethod
-    def predict(self, X, n_samples: int = 1000, ci: float = None, yield_samples=True):
-        y_pred_samples = self._predict_samples(X, n_samples)
+    def predict(self, X, env_ids, n_samples: int = 1000, ci: float = None, yield_samples=True):
+        y_pred_samples = self._predict_samples(X, env_ids, n_samples)
+        y_pred_samples = np.array(y_pred_samples)
         if not ci:
             if not yield_samples:
                 return self.get_mode_from_samples(y_pred_samples)
@@ -78,10 +88,10 @@ class NumPyroRegressor(ABC, BaseEstimator, RegressorMixin):
     def _predict_scalar(self, X, n_samples):
         pass
 
-    def _predict_samples(self, X, n_samples: int = 1000):
+    def _predict_samples(self, X, env_ids, n_samples: int = 1000):
         pred = npPredictive(self.conditionable_model, num_samples=n_samples, parallel=True)
         x = jnp.atleast_2d(X)
-        y_pred = pred(x, None)["measurements"]
+        y_pred = pred(x, env_ids, None)["measurements"]
         return y_pred
 
     def get_ci_from_samples(self, samples, ci):
@@ -89,12 +99,138 @@ class NumPyroRegressor(ABC, BaseEstimator, RegressorMixin):
         return ci_s
 
     def get_mode_from_samples(self, samples):
-        modes = np.mean(az.hdi(samples, hdi_prob=0.01), axis=1)
+        hdi = az.hdi(samples, hdi_prob=0.01)
+        modes = np.mean(hdi, axis=1)
         return modes
 
 
-class UnstandardizingSimpleModel(NumPyroRegressor):
-    def model(data, workloads, n_workloads, reference_y):
+
+
+
+class ExtraStandardizingEnvAgnosticModel(NumPyroRegressor):
+    def coef_ci(self, ci: float):
+        pass
+
+    def get_tuples(self, feature_names):
+        pass
+
+    def fit(self, X, y):
+        reparam_config = {
+            "influences": LocScaleReparam(0),
+            "base": LocScaleReparam(0),
+        }
+        X = jnp.atleast_2d(np.array(X.astype(float)))
+        y = jnp.array(y)
+        reparam_model = reparam(self.model, config=reparam_config)
+        nuts_kernel = npNUTS(reparam_model, target_accept_prob=0.9)
+        n_chains = 3
+        progress_bar = True
+        mcmc = npMCMC(nuts_kernel, num_samples=1000,
+                      num_warmup=1500, progress_bar=progress_bar,
+                      num_chains=n_chains, )
+        rng_key_ = random.PRNGKey(0)
+        rng_key_, rng_key = random.split(rng_key_)
+        mcmc.run(rng_key, X, y)
+
+    def _predict_samples(self, X, n_samples: int = 1000):
+        pred = npPredictive(self.model, num_samples=n_samples, parallel=True)
+        x = jnp.atleast_2d(np.array(X.astype(float)))
+        rng_key_ = random.PRNGKey(0)
+        y_pred = pred(rng_key_, x, None)["observations"]
+        return y_pred
+
+    def predict(self, X, n_samples: int = 1500, ci: float = None, yield_samples=False):
+        y_pred_samples = self._predict_samples(X, n_samples)
+        y_pred_samples = np.array(y_pred_samples)
+        if not ci:
+            if not yield_samples:
+                return self.get_mode_from_samples(y_pred_samples)
+            else:
+                return y_pred_samples
+        else:
+            ci_s = self.get_ci_from_samples(y_pred_samples, ci)
+            if not yield_samples:
+                return ci_s
+            else:
+                return ci_s, y_pred_samples
+
+    def model(self, data, reference_y):
+        joint_coef_stdev = 0.25  # 2 * y_order_of_magnitude
+        num_opts = data.shape[1]
+
+        with numpyro.plate("options", num_opts):
+            rnd_influences = numpyro.sample("influences", npdist.Normal(0, joint_coef_stdev), )
+
+        base = numpyro.sample("base", npdist.Normal(0, joint_coef_stdev))
+        result_arr = jnp.multiply(data, rnd_influences)
+        result_arr = result_arr.sum(axis=1).ravel() + base
+        error_var = numpyro.sample("error", npdist.Exponential(.05))
+
+        with numpyro.plate("data", result_arr.shape[0]):
+            obs = numpyro.sample("observations", npdist.Normal(result_arr, error_var), obs=reference_y)
+        return obs
+
+
+class ExtraStandardizingSimpleModel(NumPyroRegressor):
+    def coef_ci(self, ci: float):
+        pass
+
+    def get_tuples(self, feature_names):
+        pass
+
+    def fit(self, data: List[SingleEnvData]):
+        X, envs, y = self.X_y_envids_from_data(data)
+        n_envs = len(envs)
+        reparam_config = {
+            "influences": LocScaleReparam(0),
+            "base": LocScaleReparam(0),
+        }
+        reparam_model = reparam(self.model, config=reparam_config)
+
+        nuts_kernel = npNUTS(reparam_model, target_accept_prob=0.9)
+        n_chains = 3
+        progress_bar = True
+        mcmc = npMCMC(nuts_kernel, num_samples=2000,
+                      num_warmup=2000, progress_bar=progress_bar,
+                      num_chains=n_chains, )
+        rng_key_ = random.PRNGKey(0)
+        rng_key_, rng_key = random.split(rng_key_)
+        # mcmc.run(rng_key, X_agg[:, 0], X_agg[:, 1], X_agg[:, 2], given_obs=nfp_mean_agg, obs_stddev=nfp_stddev_agg)
+        mcmc.run(rng_key, X, envs, n_envs, y)
+
+    def X_envids_y_from_data(self, data):
+        X_list = []
+        y_list = []
+        env_id_list = []
+        for single_env_data in data:
+            normalized_data, _, _ = single_env_data.normalize()
+            env_id = normalized_data.env_id
+            X = normalized_data.get_X()
+            y = normalized_data.get_y()
+            data_len = len(y)
+            new_env_id_sublist = [env_id] * data_len
+            X_list.append(X)
+            y_list.append(y)
+            env_id_list.append(new_env_id_sublist)
+        X_df = pd.concat(X_list)
+        X_df = X_df.astype(float)
+        X = jnp.array(X_df)
+        y = jnp.concatenate(y_list)
+        envs = jnp.array(env_id_list).ravel()
+        return X, envs, y
+
+    def predict(self, data: List[SingleEnvData]):
+        preds = []
+        for single_env_data in data:
+            env_id = single_env_data.env_id
+            reg, train_data = self.get_env_model(env_id)
+            X = single_env_data.get_X()
+            pred = reg.predict(X)
+            un_normalized_pred = train_data.un_normalize(pred)
+            preds.append(un_normalized_pred)
+        return preds
+
+    def model(self, data, workloads, n_workloads, reference_y):
         workloads = jnp.array(workloads)
         y_order_of_magnitude = jnp.std(reference_y)
         joint_coef_stdev = 0.25  # 2 * y_order_of_magnitude
@@ -123,3 +259,51 @@ class UnstandardizingSimpleModel(NumPyroRegressor):
         with numpyro.plate("data", result_arr.shape[0]):
             obs = numpyro.sample("observations", npdist.Normal(result_arr, error_var), obs=reference_y)
         return obs
+
+
+class NoPoolingEnvModel:
+    def __init__(self, model_prototype: RegressorMixin):
+        self.model_prototype = model_prototype
+        self.existing_models = {}
+
+    def get_env_model(self, env_id, train_data=None):
+        if env_id not in self.existing_models:
+            new_model = copy.deepcopy(self.model_prototype)
+            self.existing_models[env_id] = new_model, train_data
+
+        return self.existing_models[env_id]
+
+    def fit(self, data: List[SingleEnvData]):
+        for single_env_data in data:
+            normalized_data, _, _ = single_env_data.normalize()
+            env_id = normalized_data.env_id
+            reg, _ = self.get_env_model(env_id, single_env_data)
+            X = normalized_data.get_X()
+            y = normalized_data.get_y()
+            reg.fit(X, y)
+
+    def predict(self, data: List[SingleEnvData]):
+        preds = []
+        for single_env_data in data:
+            env_id = single_env_data.env_id
+            reg, train_data = self.get_env_model(env_id)
+            X = single_env_data.get_X()
+            pred = reg.predict(X)
+            un_normalized_pred = train_data.un_normalize(pred)
+            preds.append(un_normalized_pred)
+        return preds
+
+
+def get_pairwise_lasso_reg(lasso_alpha=0.0001):
+    pairwise_mapper = PolynomialFeatures(degree=2, include_bias=False, interaction_only=True)
+    lin_reg = Lasso(alpha=lasso_alpha, max_iter=5000)
+    # lin_reg = LinearRegression()
+    # feature_selector = SelectFromModel(lin_reg, threshold=None)
+
+    pipeline = Pipeline([
+        ('pairwise_mapper', pairwise_mapper),
+        # ('feature_selector', feature_selector),
+        ('lin_reg', lin_reg)
+    ])
+
+    return pipeline
