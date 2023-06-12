@@ -7,6 +7,7 @@ from sklearn.base import BaseEstimator, RegressorMixin
 from abc import ABC, abstractmethod
 import sklearn
 import pprint
+import seaborn as sns
 import jax.numpy as jnp
 import numpyro.distributions as npdist
 from numpyro.infer import HMCECS as npHMCECS, MCMC as npMCMC, NUTS as npNUTS, HMC as npHMC, BarkerMH, \
@@ -41,7 +42,7 @@ from numpyro.infer.reparam import LocScaleReparam
 
 from wluncert.data import SingleEnvData
 
-numpyro.set_host_device_count(8)
+numpyro.set_host_device_count(4)
 import copy
 
 
@@ -49,6 +50,7 @@ class NumPyroRegressor(ABC, BaseEstimator, RegressorMixin):
     def __init__(self):
         self.coef_ = None
         self.samples = None
+        self.mcmc = None
 
     @staticmethod
     def conditionable_model(data):
@@ -104,9 +106,6 @@ class NumPyroRegressor(ABC, BaseEstimator, RegressorMixin):
         return modes
 
 
-
-
-
 class ExtraStandardizingEnvAgnosticModel(NumPyroRegressor):
     def coef_ci(self, ci: float):
         pass
@@ -115,25 +114,34 @@ class ExtraStandardizingEnvAgnosticModel(NumPyroRegressor):
         pass
 
     def fit(self, X, y):
-        reparam_config = {
-            "influences": LocScaleReparam(0),
-            "base": LocScaleReparam(0),
-        }
+        # reparam_config = {
+        #     "influences": LocScaleReparam(0),
+        #     "base": LocScaleReparam(0),
+        # }
         X = jnp.atleast_2d(np.array(X.astype(float)))
         y = jnp.array(y)
-        reparam_model = reparam(self.model, config=reparam_config)
-        nuts_kernel = npNUTS(reparam_model, target_accept_prob=0.9)
+        # reparam_model = reparam(self.model, config=reparam_config)
+        reparam_model = self.model
+        nuts_kernel = npNUTS(reparam_model)  # , target_accept_prob=0.9)
         n_chains = 3
         progress_bar = True
-        mcmc = npMCMC(nuts_kernel, num_samples=1000,
-                      num_warmup=1500, progress_bar=progress_bar,
-                      num_chains=n_chains, )
+        self.mcmc = npMCMC(nuts_kernel, num_samples=1000,
+                           num_warmup=1500, progress_bar=progress_bar,
+                           num_chains=n_chains, chain_method="parallel")
         rng_key_ = random.PRNGKey(0)
         rng_key_, rng_key = random.split(rng_key_)
-        mcmc.run(rng_key, X, y)
+        self.mcmc.run(rng_key, X, y)
+        self.save_plot()
+        return self.mcmc
 
-    def _predict_samples(self, X, n_samples: int = 1000):
-        pred = npPredictive(self.model, num_samples=n_samples, parallel=True)
+    def save_plot(self):
+        az.plot_trace(az.from_numpyro(self.mcmc))
+        plt.tight_layout()
+        plt.savefig("./tmp/mcmc-agnostic.png")
+
+    def _predict_samples(self, X, n_samples: int = 1_000):
+        posterior_samples = self.mcmc.get_samples()
+        pred = npPredictive(self.model, posterior_samples=posterior_samples, num_samples=n_samples, parallel=True)
         x = jnp.atleast_2d(np.array(X.astype(float)))
         rng_key_ = random.PRNGKey(0)
         y_pred = pred(rng_key_, x, None)["observations"]
@@ -155,16 +163,16 @@ class ExtraStandardizingEnvAgnosticModel(NumPyroRegressor):
                 return ci_s, y_pred_samples
 
     def model(self, data, reference_y):
-        joint_coef_stdev = 0.25  # 2 * y_order_of_magnitude
+        joint_coef_stdev = 0.25  # 0.25  # 2 * y_order_of_magnitude
         num_opts = data.shape[1]
 
         with numpyro.plate("options", num_opts):
-            rnd_influences = numpyro.sample("influences", npdist.Normal(0, joint_coef_stdev), )
+            rnd_influences = numpyro.sample("influences", npdist.Laplace(0, joint_coef_stdev), )
 
-        base = numpyro.sample("base", npdist.Normal(0, joint_coef_stdev))
+        base = numpyro.sample("base", npdist.Laplace(0, joint_coef_stdev))
         result_arr = jnp.multiply(data, rnd_influences)
         result_arr = result_arr.sum(axis=1).ravel() + base
-        error_var = numpyro.sample("error", npdist.Exponential(.05))
+        error_var = numpyro.sample("error", npdist.Exponential(.01))
 
         with numpyro.plate("data", result_arr.shape[0]):
             obs = numpyro.sample("observations", npdist.Normal(result_arr, error_var), obs=reference_y)
@@ -179,7 +187,7 @@ class ExtraStandardizingSimpleModel(NumPyroRegressor):
         pass
 
     def fit(self, data: List[SingleEnvData]):
-        X, envs, y = self.X_y_envids_from_data(data)
+        X, envs, y = self.X_envids_y_from_data(data)
         n_envs = len(envs)
         reparam_config = {
             "influences": LocScaleReparam(0),
@@ -187,23 +195,28 @@ class ExtraStandardizingSimpleModel(NumPyroRegressor):
         }
         reparam_model = reparam(self.model, config=reparam_config)
 
-        nuts_kernel = npNUTS(reparam_model, target_accept_prob=0.9)
+        nuts_kernel = npNUTS(reparam_model)
         n_chains = 3
         progress_bar = True
-        mcmc = npMCMC(nuts_kernel, num_samples=2000,
-                      num_warmup=2000, progress_bar=progress_bar,
-                      num_chains=n_chains, )
+        self.mcmc = npMCMC(nuts_kernel, num_samples=1000,
+                           num_warmup=1500, progress_bar=progress_bar,
+                           num_chains=n_chains, )
         rng_key_ = random.PRNGKey(0)
         rng_key_, rng_key = random.split(rng_key_)
         # mcmc.run(rng_key, X_agg[:, 0], X_agg[:, 1], X_agg[:, 2], given_obs=nfp_mean_agg, obs_stddev=nfp_stddev_agg)
-        mcmc.run(rng_key, X, envs, n_envs, y)
+        self.mcmc.run(rng_key, X, envs, n_envs, y)
+        print("finished fitting multilevel model")
+        print("plotting result")
+        self.save_plot()
+        print("finished plotting")
+        return self.mcmc
 
     def X_envids_y_from_data(self, data):
         X_list = []
         y_list = []
         env_id_list = []
         for single_env_data in data:
-            normalized_data, _, _ = single_env_data.normalize()
+            normalized_data = single_env_data.normalize()
             env_id = normalized_data.env_id
             X = normalized_data.get_X()
             y = normalized_data.get_y()
@@ -221,6 +234,8 @@ class ExtraStandardizingSimpleModel(NumPyroRegressor):
 
     def predict(self, data: List[SingleEnvData]):
         preds = []
+
+        X, envs, y = self.X_envids_y_from_data(data)
         for single_env_data in data:
             env_id = single_env_data.env_id
             reg, train_data = self.get_env_model(env_id)
@@ -237,10 +252,10 @@ class ExtraStandardizingSimpleModel(NumPyroRegressor):
         num_opts = data.shape[1]
         stddev_exp_prior = 0.250
         with numpyro.plate("options", num_opts):
-            hyper_coef_means = numpyro.sample("means-hyper", npdist.Normal(0, joint_coef_stdev), )
+            hyper_coef_means = numpyro.sample("means-hyper", npdist.Laplace(0, joint_coef_stdev), )
             hyper_coef_stddevs = numpyro.sample("stddevs-hyper", npdist.Exponential(stddev_exp_prior), )
 
-        hyper_base_mean = numpyro.sample("base mean hyperior", npdist.Normal(0, joint_coef_stdev), )
+        hyper_base_mean = numpyro.sample("base mean hyperior", npdist.Laplace(0, joint_coef_stdev), )
         hyper_base_stddev = numpyro.sample("base stddevs hyperior", npdist.Exponential(stddev_exp_prior), )
 
         with numpyro.plate("options", num_opts):
@@ -254,11 +269,16 @@ class ExtraStandardizingSimpleModel(NumPyroRegressor):
         respective_bases = bases[workloads]
         result_arr = jnp.multiply(data, respective_influences)
         result_arr = result_arr.sum(axis=1).ravel() + respective_bases
-        error_var = numpyro.sample("error", npdist.Exponential(.05))
+        error_var = numpyro.sample("error", npdist.Exponential(.01))
 
         with numpyro.plate("data", result_arr.shape[0]):
             obs = numpyro.sample("observations", npdist.Normal(result_arr, error_var), obs=reference_y)
         return obs
+
+    def save_plot(self):
+        az.plot_trace(az.from_numpyro(self.mcmc))
+        plt.tight_layout()
+        plt.savefig("./tmp/mcmc-multilevel.png")
 
 
 class NoPoolingEnvModel:
@@ -275,9 +295,9 @@ class NoPoolingEnvModel:
 
     def fit(self, data: List[SingleEnvData]):
         for single_env_data in data:
-            normalized_data, _, _ = single_env_data.normalize()
+            normalized_data = single_env_data.normalize()
             env_id = normalized_data.env_id
-            reg, _ = self.get_env_model(env_id, single_env_data)
+            reg, _ = self.get_env_model(env_id, normalized_data)
             X = normalized_data.get_X()
             y = normalized_data.get_y()
             reg.fit(X, y)
@@ -287,9 +307,10 @@ class NoPoolingEnvModel:
         for single_env_data in data:
             env_id = single_env_data.env_id
             reg, train_data = self.get_env_model(env_id)
-            X = single_env_data.get_X()
+            normalized_predict_data = single_env_data.normalize(train_data)
+            X = normalized_predict_data.get_X()
             pred = reg.predict(X)
-            un_normalized_pred = train_data.un_normalize(pred)
+            un_normalized_pred = train_data.un_normalize_y(pred)
             preds.append(un_normalized_pred)
         return preds
 

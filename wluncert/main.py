@@ -1,7 +1,8 @@
 from typing import List, Dict
 import random
 import pandas as pd
-
+import arviz as az
+import matplotlib.pyplot as plt
 from wluncert.data import DataLoaderStandard, DataAdapterJump3r, WorkloadTrainingDataSet, SingleEnvData
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.linear_model import LinearRegression
@@ -11,15 +12,8 @@ from wluncert.models import NoPoolingEnvModel, get_pairwise_lasso_reg, ExtraStan
 from sklearn.metrics import mean_absolute_percentage_error, r2_score
 from tqdm import tqdm
 
-
-class Expperiment:
-    def __init__(self, model, data):
-        self.model = model
-        self.data = data
-
-    def run(self):
-        pass
-
+import numpyro
+numpyro.set_host_device_count(6)
 
 class ExperimentMultitask:
     def __init__(self, model_lbl, model, envs_lbl, environments_data: WorkloadTrainingDataSet, split_args: Dict,
@@ -163,19 +157,22 @@ def main():
     mcmc_no_pooling_proto = ExtraStandardizingEnvAgnosticModel()
     model_mcmc_no_pooling = NoPoolingEnvModel(mcmc_no_pooling_proto)
 
+    model_partial_extra_standardization = ExtraStandardizingSimpleModel()
     models = {
-        "mcmc-no-pooling": model_mcmc_no_pooling,
-        "no-pooling-rf": model_rf,
-        "no-pooling-lin": model_lin_reg,
-
-        # # "no-pooling-pairwise": model_pairwise_reg,
+        "partial-pooling-mcmc-extra": model_partial_extra_standardization,
+        # "mcmc-no-pooling": model_mcmc_no_pooling,
+        # "no-pooling-rf": model_rf,
+        # "no-pooling-lin": model_lin_reg,
         # "no-pooling-dummy": model_dummy,
-        # "partial-pooling-mcmc-extra": model_extra_std_mcmc
+        #
+        # # # "no-pooling-pairwise": model_pairwise_reg,
     }
 
+
     print("created models")
-    train_sizes = 1, 2, 3, 5,
-    rnds = list(range(5))
+    # train_sizes = 1, 2, 5#3, 5,
+    train_sizes = 1, 2, 4
+    rnds = list(range(3))
 
     rep = Replication(models, data_providers, train_sizes, rnds)
     errs = rep.run()

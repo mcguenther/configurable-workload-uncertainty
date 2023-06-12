@@ -8,6 +8,8 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
+
+
 class SingleEnvData:
     def __init__(self, df: pd.DataFrame, environment_col_name, nfps):
         self.df_raw = df
@@ -31,17 +33,25 @@ class SingleEnvData:
         return len(self.get_option_names())
 
     def get_X(self):
-        cols = list(copy.deepcopy(self.df.columns))
-        # cols.remove([self.environment_col_name, *self.nfps])
-        new_cols = [c for c in cols if c not in self.nfps]
+        new_cols = self.get_feature_names()
         x = self.df[new_cols]
         return x
 
+    def get_feature_names(self):
+        cols = list(copy.deepcopy(self.df.columns))
+        # cols.remove([self.environment_col_name, *self.nfps])
+        new_cols = [c for c in cols if c not in self.nfps]
+        return new_cols
+
     def get_y(self, nfp_name=None):
-        if nfp_name is None:
-            nfp_name = self.get_selected_nfp_name()
+        nfp_name = self.default_to_selected_nfp(nfp_name)
         y = np.array(self.df[nfp_name])
         return y
+
+    def default_to_selected_nfp(self, nfp_name):
+        if nfp_name is None:
+            nfp_name = self.get_selected_nfp_name()
+        return nfp_name
 
     def get_split(self, n_train_samples_abs=None, n_train_samples_rel_opt_num=None, rnd=0):
         n_opts = self.get_n_options()
@@ -51,46 +61,76 @@ class SingleEnvData:
         test_data = SingleEnvData(df_test, self.env_col_name, self.nfps)
         return SingleEnvDataTrainTestSplit(train_data, test_data)
 
-    def normalize(self, mean=None, std=None):
+    def normalize(self, other_normalized = None):
         """
         normalizes the nfp. estimates mean and std from data. if params mean and std given, uses those instead.
         :param mean:
         :param std:
         :return:
         """
-        y = self.get_y()
-        mean = np.mean(y) if mean is None else mean
-        std = np.std(y) if std is None else std
-        y_norm = (y - mean) / std
-        new_df = copy.deepcopy(self.df_raw)
-        nfp_name = self.get_selected_nfp_name()
-        new_df[nfp_name] = y_norm
-        unconsidered_nfp = set(self.nfps) - {nfp_name}
-        if len(unconsidered_nfp) > 0:
-            new_df = new_df.drop(columns=list(unconsidered_nfp))
-        new_data = SingleEnvData(new_df, self.env_col_name, [nfp_name])
-        self.std = std
-        self.mean = mean
-        return new_data, mean, std
+        new_data = SingleEnvDataNormalized(self.df_raw, self.env_col_name, self.nfps, other_normalized=other_normalized)
+        return new_data
 
     def un_normalize(self, scalar):
         return scalar * self.std + self.mean
+
+
+class SingleEnvDataNormalized(SingleEnvData):
+    def __init__(self, df: pd.DataFrame, environment_col_name, nfps, other_normalized=None):
+        super().__init__(df, environment_col_name, nfps)
+        if other_normalized:
+            self.scaler_X = other_normalized.scaler_X
+            self.scaler_y = other_normalized.scaler_y
+            self.normalize_X(self.scaler_X)
+            self.normalize_y(self.scaler_y)
+        else:
+            self.scaler_X = None
+            self.scaler_y = {}
+            self.normalize_X()
+            self.normalize_y()
+
+
+    def fit_scaler_X(self):
+        X = self.get_X()
+        self.scaler_X = StandardScaler()
+        self.scaler_X = self.scaler_X.fit(X)
+        return self.scaler_X
+
+    def normalize_X(self, scaler = None):
+        X = self.get_X()
+        self.scaler_X = scaler if scaler else self.fit_scaler_X()
+        X_scaled = self.scaler_X.transform(X)
+        features = self.get_feature_names()
+        self.df[features] = X_scaled
+    def normalize_y(self, scaler = None):
+        for nfp_name in self.nfps:
+            y = np.atleast_2d(self.get_y(nfp_name)).T
+            if scaler:
+                y_scaled = scaler[nfp_name].transform(y)
+            y_scaler = StandardScaler()
+            y_scaled = y_scaler.fit_transform(y)
+            self.df[nfp_name] = y_scaled.ravel()
+            self.scaler_y[nfp_name] = y_scaler
+
+    def un_normalize_y(self, y, nfp_name=None):
+        y = np.atleast_2d(y).T
+        nfp_name = self.default_to_selected_nfp(nfp_name)
+        scaler = self.scaler_y[nfp_name]
+        inverse_y = scaler.inverse_transform(y).ravel()
+        return inverse_y
+
 
 
 class SingleEnvDataTrainTestSplit:
     def __init__(self, train_data: SingleEnvData, test_data: SingleEnvData):
         self.train_data = train_data
         self.test_data = test_data
-        self.mean = None
-        self.std = None
 
     def normalize(self):
-        self.train_data, self.mean, self.std = self.train_data.normalize()
-        self.test_data, _, _ = self.test_data.normalize(self.mean, self.std)
-        return self.train_data, self.test_data, self.mean, self.std
+        self.train_data, = self.train_data.normalize()
+        self.test_data = self.test_data.normalize(other_normalized=self.train_data)
+        return self.train_data, self.test_data
 
-    def un_normalize_scalar(self, scalar):
-        return scalar * self.std + self.mean
 
 
 class WorkloadTrainingDataSet:
