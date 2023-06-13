@@ -55,6 +55,8 @@ class SingleEnvData:
     def get_split(self, n_train_samples_abs=None, n_train_samples_rel_opt_num=None, rnd=0):
         n_opts = self.get_n_options()
         absolute_train_size = n_train_samples_abs if n_train_samples_rel_opt_num is None else n_train_samples_rel_opt_num * n_opts
+        absolute_train_size = int(absolute_train_size)
+        print("Splitting train set with abs samples of", absolute_train_size)
         df_train, df_test = train_test_split(self.df_raw, train_size=absolute_train_size, random_state=rnd)
         train_data = SingleEnvData(df_train, self.env_col_name, self.nfps)
         test_data = SingleEnvData(df_test, self.env_col_name, self.nfps)
@@ -210,6 +212,12 @@ class DataAdapter(DataSource, ABC):
     def get_environment_lables(self):
         pass
 
+    # @abstractmethod
+    # def get_feature_names(self):
+    #     pass
+
+
+
     @abstractmethod
     def get_nfps(self):
         pass
@@ -266,6 +274,7 @@ class DataAdapterXZ(DataAdapter):
 
 
 class DataAdapterJump3r(DataAdapter):
+
     def __init__(self, data_loader: DataLoaderStandard):
         self.environment_col_name = "workload_id"
         self.nfps = ["time", "max-resident-size"]
@@ -276,7 +285,7 @@ class DataAdapterJump3r(DataAdapter):
         return self.environment_col_name
 
     def get_environment_lables(self):
-        return self.environment_lables
+        return list(self.environment_lables)
 
     def get_nfps(self):
         return self.nfps

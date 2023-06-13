@@ -286,7 +286,8 @@ class ExtraStandardizingSimpleModel(NumPyroRegressor, StandardizingModel):
         file_template = "./tmp/mcmc-multilevel-{}.png"
         plot_path = file_template.format("trace")  # "./tmp/mcmc-multilevel-trace.png"
         az.plot_trace(numpyro_data,
-                      var_names=plot_vars, combined=True, legend=True, compact=True)
+                      var_names=plot_vars, legend=False, compact=True,
+                      combined=True, chain_prop={"ls": "-"})
         plt.tight_layout()
         print("storing plot to", plot_path)
         plt.savefig(plot_path)

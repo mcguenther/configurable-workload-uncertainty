@@ -118,7 +118,7 @@ class Replication:
                     for rnd in self.rnds:
                         task = ExperimentMultitask(model_lbl, model_proto, data_lbl, data_set,
                                                    split_args={"n_train_samples_rel_opt_num": train_size},
-                                                   exp_id=train_size,
+                                                   exp_id=f"{train_size}-rnd-{rnd}",
                                                    rnd=rnd)
                         tasks.append(task)
 
@@ -166,9 +166,11 @@ def main():
     data_jump3r = DataAdapterJump3r(jump3r_data_raw)
     wl_data: WorkloadTrainingDataSet = data_jump3r.get_wl_data()
 
+    env_lbls = data_jump3r.get_environment_lables()
+    feature_names = list(wl_data.get_workloads_data()[0].get_X().columns)
     if debug:
-        mcmc_num_warmup = 1500
-        mcmc_num_samples = 1500
+        mcmc_num_warmup = 1000
+        mcmc_num_samples = 750
         mcmc_num_chains = 3
     else:
         mcmc_num_warmup = 1000
@@ -200,7 +202,8 @@ def main():
     mcmc_no_pooling_proto = ExtraStandardizingEnvAgnosticModel(plot=plot, **mcmc_kwargs)
     model_mcmc_no_pooling = NoPoolingEnvModel(mcmc_no_pooling_proto)
 
-    model_partial_extra_standardization = ExtraStandardizingSimpleModel(plot=plot, **mcmc_kwargs)
+    model_partial_extra_standardization = ExtraStandardizingSimpleModel(plot=plot, feature_names=feature_names,
+                                                                        env_names=env_lbls, **mcmc_kwargs)
 
     if debug:
         models = {
@@ -213,7 +216,7 @@ def main():
             # # # "no-pooling-pairwise": model_pairwise_reg,
         }
 
-        train_sizes = 1,
+        train_sizes = [0.99,]
         rnds = list(range(1))
     else:
         models = {
