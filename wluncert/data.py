@@ -9,13 +9,12 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 
-
 class SingleEnvData:
     def __init__(self, df: pd.DataFrame, environment_col_name, nfps):
         self.df_raw = df
         self.df = copy.deepcopy(self.df_raw)
         self.env_col_name = environment_col_name
-        self.env_id = list(self.df[environment_col_name].unique())[0]
+        self.env_id = int(list(self.df[environment_col_name].unique())[0])
         self.df = self.df.drop(columns=[environment_col_name])
         self.nfps = list(nfps)
         self.std = None
@@ -61,7 +60,7 @@ class SingleEnvData:
         test_data = SingleEnvData(df_test, self.env_col_name, self.nfps)
         return SingleEnvDataTrainTestSplit(train_data, test_data)
 
-    def normalize(self, other_normalized = None):
+    def normalize(self, other_normalized=None):
         """
         normalizes the nfp. estimates mean and std from data. if params mean and std given, uses those instead.
         :param mean:
@@ -70,9 +69,6 @@ class SingleEnvData:
         """
         new_data = SingleEnvDataNormalized(self.df_raw, self.env_col_name, self.nfps, other_normalized=other_normalized)
         return new_data
-
-    def un_normalize(self, scalar):
-        return scalar * self.std + self.mean
 
 
 class SingleEnvDataNormalized(SingleEnvData):
@@ -89,20 +85,20 @@ class SingleEnvDataNormalized(SingleEnvData):
             self.normalize_X()
             self.normalize_y()
 
-
     def fit_scaler_X(self):
         X = self.get_X()
         self.scaler_X = StandardScaler()
         self.scaler_X = self.scaler_X.fit(X)
         return self.scaler_X
 
-    def normalize_X(self, scaler = None):
+    def normalize_X(self, scaler=None):
         X = self.get_X()
         self.scaler_X = scaler if scaler else self.fit_scaler_X()
         X_scaled = self.scaler_X.transform(X)
         features = self.get_feature_names()
         self.df[features] = X_scaled
-    def normalize_y(self, scaler = None):
+
+    def normalize_y(self, scaler=None):
         for nfp_name in self.nfps:
             y = np.atleast_2d(self.get_y(nfp_name)).T
             if scaler:
@@ -120,7 +116,6 @@ class SingleEnvDataNormalized(SingleEnvData):
         return inverse_y
 
 
-
 class SingleEnvDataTrainTestSplit:
     def __init__(self, train_data: SingleEnvData, test_data: SingleEnvData):
         self.train_data = train_data
@@ -130,7 +125,6 @@ class SingleEnvDataTrainTestSplit:
         self.train_data, = self.train_data.normalize()
         self.test_data = self.test_data.normalize(other_normalized=self.train_data)
         return self.train_data, self.test_data
-
 
 
 class WorkloadTrainingDataSet:
