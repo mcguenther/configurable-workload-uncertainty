@@ -15,7 +15,7 @@ from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.dummy import DummyRegressor
 from wluncert.models import NoPoolingEnvModel, get_pairwise_lasso_reg, ExtraStandardizingSimpleModel, \
-    ExtraStandardizingEnvAgnosticModel
+    ExtraStandardizingEnvAgnosticModel, CompletePoolingEnvModel
 from sklearn.metrics import mean_absolute_percentage_error, r2_score
 from tqdm import tqdm
 import argparse
@@ -42,7 +42,7 @@ class ExperimentMultitask:
             train_data = split.train_data
             test_data = split.test_data
             self.train_list.append(train_data)
-            self.test_list.append(test_data)
+            self.test_list.append(env_data)
 
     def run(self):
         # for train_data in self.train_list:
@@ -180,10 +180,6 @@ def main():
     progress_bar = False if n_jobs else True
     mcmc_kwargs = {"num_warmup": mcmc_num_warmup, "num_samples": mcmc_num_samples, "num_chains": mcmc_num_chains,
                    "progress_bar": progress_bar}
-
-    # known_env_data, target_data = wl_data.get_loo_wl_data()
-    # example_split = target_data[0].get_split(20)
-    # example_split.normalize()
     data_providers = {"jump3r": wl_data}
 
     print("loaded data")
@@ -200,35 +196,35 @@ def main():
     dummy_proto = DummyRegressor()
     model_dummy = NoPoolingEnvModel(dummy_proto)
 
-    mcmc_no_pooling_proto = ExtraStandardizingEnvAgnosticModel(plot=plot, **mcmc_kwargs)
+    mcmc_no_pooling_proto = ExtraStandardizingEnvAgnosticModel(plot=plot, feature_names=feature_names, **mcmc_kwargs)
     model_mcmc_no_pooling = NoPoolingEnvModel(mcmc_no_pooling_proto)
 
     model_partial_extra_standardization = ExtraStandardizingSimpleModel(plot=plot, feature_names=feature_names,
                                                                         env_names=env_lbls, **mcmc_kwargs)
 
-    if debug:
-        models = {
-            "partial-pooling-mcmc-extra": model_partial_extra_standardization,
-            # "mcmc-no-pooling": model_mcmc_no_pooling,
-            # "no-pooling-rf": model_rf,
-            # "no-pooling-lin": model_lin_reg,
-            # "no-pooling-dummy": model_dummy,
-            #
-            # # # "no-pooling-pairwise": model_pairwise_reg,
-        }
+    complete_pooling_rf = CompletePoolingEnvModel(rf_proto)
+    complete_pooling_mcmc = CompletePoolingEnvModel(mcmc_no_pooling_proto)
 
-        train_sizes = [2,]
+    models = {
+        "partial-pooling-mcmc-extra": model_partial_extra_standardization,
+        "no-pooling-mcmc": model_mcmc_no_pooling,
+        "no-pooling-rf": model_rf,
+        "no-pooling-lin": model_lin_reg,
+        "no-pooling-dummy": model_dummy,
+        "cpooling-rf": complete_pooling_rf,
+        "cpooling-mcmc": complete_pooling_mcmc,
+    }
+
+    if debug:
+        # debug_models = ["cpooling-mcmc"]
+        # debug_models = ["no-pooling-mcmc"]
+        debug_models = ["partial-pooling-mcmc-extra"]
+        models = {k: v for k, v in models.items() if k in debug_models}
+        train_sizes = [4.0, ]
         rnds = list(range(1))
     else:
-        models = {
-            "partial-pooling-mcmc-extra": model_partial_extra_standardization,
-            "no-pooling-mcmc": model_mcmc_no_pooling,
-            "no-pooling-rf": model_rf,
-            "no-pooling-lin": model_lin_reg,
-            "no-pooling-dummy": model_dummy,
-        }
-
-        train_sizes = 1, 2, 3, 4,
+        # train_sizes = 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5
+        train_sizes = 1, 1.33, 1.66, 2, 3
         rnds = list(range(5))
     print("created models")
 
