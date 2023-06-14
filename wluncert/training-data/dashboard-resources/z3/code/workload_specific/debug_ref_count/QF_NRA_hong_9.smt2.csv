@@ -1,0 +1,11 @@
+path,line
+src/ast/ast.cpp,1909
+src/ast/ast.cpp,1910
+src/ast/ast.h,1624
+src/cmd_context/cmd_context.cpp,322
+src/util/bit_vector.cpp,29
+src/util/hashtable.h,365
+src/util/hashtable.h,369
+src/util/hashtable.h,370
+src/util/hashtable.h,400
+src/util/map.h,285

@@ -1,0 +1,14 @@
+path,line
+src/ast/arith_decl_plugin.cpp,588
+src/ast/arith_decl_plugin.cpp,589
+src/ast/ast.cpp,2105
+src/ast/ast.cpp,2106
+src/ast/ast.cpp,2107
+src/ast/ast.cpp,2116
+src/ast/ast.cpp,2117
+src/ast/ast.cpp,2122
+src/ast/ast.cpp,2127
+src/ast/ast.cpp,2128
+src/ast/ast.cpp,2129
+src/ast/ast.h,1529
+src/cmd_context/cmd_context.cpp,320
