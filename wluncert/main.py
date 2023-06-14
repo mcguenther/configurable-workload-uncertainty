@@ -118,7 +118,8 @@ class Replication:
                     for rnd in self.rnds:
                         task = ExperimentMultitask(model_lbl, model_proto, data_lbl, data_set,
                                                    split_args={"n_train_samples_rel_opt_num": train_size},
-                                                   exp_id=f"{train_size}-rnd-{rnd}",
+                                                   # exp_id=f"{train_size}-rnd-{rnd}",
+                                                   exp_id=train_size,
                                                    rnd=rnd)
                         tasks.append(task)
 
@@ -173,7 +174,7 @@ def main():
         mcmc_num_samples = 750
         mcmc_num_chains = 3
     else:
-        mcmc_num_warmup = 1000
+        mcmc_num_warmup = 1500
         mcmc_num_samples = 1000
         mcmc_num_chains = 3
     progress_bar = False if n_jobs else True
@@ -216,7 +217,7 @@ def main():
             # # # "no-pooling-pairwise": model_pairwise_reg,
         }
 
-        train_sizes = [0.99,]
+        train_sizes = [2,]
         rnds = list(range(1))
     else:
         models = {
@@ -234,6 +235,7 @@ def main():
     rep = Replication(models, data_providers, train_sizes, rnds, n_jobs=n_jobs)
     errs = rep.run()
     errs.to_csv("./results/last_experiment.csv")
+    print("DONE.")
 
 
 if __name__ == "__main__":

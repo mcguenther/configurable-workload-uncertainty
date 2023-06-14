@@ -139,7 +139,7 @@ class ExtraStandardizingEnvAgnosticModel(NumPyroRegressor):
         num_opts = data.shape[1]
 
         with numpyro.plate("options", num_opts):
-            rnd_influences = numpyro.sample("influences", npdist.Laplace(0, joint_coef_stdev), )
+            rnd_influences = numpyro.sample("influences", npdist.Normal(0, joint_coef_stdev), )
 
         base = numpyro.sample("base", npdist.Laplace(0, joint_coef_stdev))
         result_arr = jnp.multiply(data, rnd_influences)
@@ -236,7 +236,7 @@ class ExtraStandardizingSimpleModel(NumPyroRegressor, StandardizingModel):
         X, envs, y = self.X_envids_y_from_data_for_prediction(data)
         n_workloads = len(data)
         model_args = X, envs, n_workloads
-        envs_int = list(map(int, envs))
+        envs_int = np.array(envs).astype(int)
         preds = self._internal_predict(model_args)
         unstandardized_preds = []
         unstandardized_preds_dict = {int(env_id): [] for env_id in np.unique(envs_int)}
@@ -249,32 +249,36 @@ class ExtraStandardizingSimpleModel(NumPyroRegressor, StandardizingModel):
         return return_list
 
     def model(self, data, workloads, n_workloads, reference_y):
-        joint_coef_stdev = 0.25  # 2 * y_order_of_magnitude
+        joint_coef_stdev = 0.99825  # 2 * y_order_of_magnitude
         num_opts = data.shape[1]
-        stddev_exp_prior = 0.25
+        stddev_exp_prior = 0.525
+
         with numpyro.plate("options", num_opts):
-            hyper_coef_means = numpyro.sample("influences-mean-hyperior", npdist.Laplace(0, joint_coef_stdev), )
+            hyper_coef_means = numpyro.sample("influences-mean-hyperior", npdist.Normal(0, joint_coef_stdev), )
             hyper_coef_stddevs = numpyro.sample("influences-stddevs-hyperior", npdist.Exponential(stddev_exp_prior), )
 
-        hyper_base_mean = numpyro.sample("base-mean-hyperior", npdist.Laplace(0, joint_coef_stdev), )
+        hyper_base_mean = numpyro.sample("base-mean-hyperior", npdist.Normal(0, joint_coef_stdev), )
         hyper_base_stddev = numpyro.sample("base-stddevs-hyperior", npdist.Exponential(stddev_exp_prior), )
 
         with numpyro.plate("options", num_opts):
             with numpyro.plate("workloads", n_workloads):
-                rnd_influences = numpyro.sample("influences", npdist.Normal(hyper_coef_means, hyper_coef_stddevs), )
+                rnd_influences = numpyro.sample("influences", npdist.Cauchy(hyper_coef_means, hyper_coef_stddevs), )
 
         with numpyro.plate("workloads", n_workloads):
             bases = numpyro.sample("base", npdist.Normal(hyper_base_mean, hyper_base_stddev))
 
-        error_var = numpyro.sample("error", npdist.Exponential(.1))
+        error_hyperior = numpyro.sample("error-hyperior", npdist.Exponential(.1))
+        with numpyro.plate("workloads", n_workloads):
+            error_var = numpyro.sample("error", npdist.Exponential(error_hyperior))
 
+        right_error = error_var[workloads]
         respective_influences = rnd_influences[workloads]
         respective_bases = bases[workloads]
         result_arr = jnp.multiply(data, respective_influences)
         result_arr = result_arr.sum(axis=1).ravel() + respective_bases
 
         with numpyro.plate("data", result_arr.shape[0]):
-            obs = numpyro.sample("observations", npdist.Normal(result_arr, error_var), obs=reference_y)
+            obs = numpyro.sample("observations", npdist.Normal(result_arr, right_error), obs=reference_y)
         return obs
 
     def save_plot(self):
@@ -286,7 +290,7 @@ class ExtraStandardizingSimpleModel(NumPyroRegressor, StandardizingModel):
         file_template = "./tmp/mcmc-multilevel-{}.png"
         plot_path = file_template.format("trace")  # "./tmp/mcmc-multilevel-trace.png"
         az.plot_trace(numpyro_data,
-                      var_names=plot_vars, legend=False, compact=True,
+                      var_names=plot_vars, legend=True, compact=True,
                       combined=True, chain_prop={"ls": "-"})
         plt.tight_layout()
         print("storing plot to", plot_path)
