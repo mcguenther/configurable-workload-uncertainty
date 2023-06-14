@@ -220,12 +220,12 @@ def main():
         # debug_models = ["no-pooling-mcmc"]
         debug_models = ["partial-pooling-mcmc-extra"]
         models = {k: v for k, v in models.items() if k in debug_models}
-        train_sizes = [4.0, ]
+        train_sizes = [4, ]
         rnds = list(range(1))
     else:
         # train_sizes = 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5
-        train_sizes = 1, 1.33, 1.66, 2, 3
-        rnds = list(range(5))
+        train_sizes = 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4
+        rnds = list(range(10))
     print("created models")
 
     rep = Replication(models, data_providers, train_sizes, rnds, n_jobs=n_jobs)

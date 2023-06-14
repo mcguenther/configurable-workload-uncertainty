@@ -1,3 +1,4 @@
+import time
 from typing import List
 
 from matplotlib import pyplot as plt
@@ -68,7 +69,7 @@ class NumPyroRegressor(ABC, BaseEstimator, RegressorMixin):
         posterior_samples = self.mcmc.get_samples()
         # pred = npPredictive(self.model, posterior_samples=posterior_samples, num_samples=n_samples, parallel=True)
         # numpyro currently ignores num_samples if different from number of posterior samples
-        pred = npPredictive(self.model, posterior_samples=posterior_samples,parallel=True)
+        pred = npPredictive(self.model, posterior_samples=posterior_samples, parallel=True)
         rng_key_ = random.PRNGKey(0)
         y_pred = pred(rng_key_, *model_args, None)["observations"]
         return y_pred
@@ -133,7 +134,7 @@ class ExtraStandardizingEnvAgnosticModel(NumPyroRegressor):
 
     def save_plot(self):
         arviz_data = self.get_arviz_data()
-        az.plot_trace(arviz_data,legend=True)
+        az.plot_trace(arviz_data, legend=True)
         plt.tight_layout()
         plt.suptitle(self.env_lbl)
         plt.savefig("./tmp/mcmc-agnostic.png")
@@ -150,7 +151,7 @@ class ExtraStandardizingEnvAgnosticModel(NumPyroRegressor):
         return result
 
     def model(self, data, reference_y):
-        joint_coef_stdev = 0.25  # 0.25  # 2 * y_order_of_magnitude
+        joint_coef_stdev = 0.5  # 0.25  # 2 * y_order_of_magnitude
         num_opts = data.shape[1]
 
         with numpyro.plate("options", num_opts):
@@ -159,7 +160,7 @@ class ExtraStandardizingEnvAgnosticModel(NumPyroRegressor):
         # base = numpyro.sample("base", npdist.Laplace(0, joint_coef_stdev))
         result_arr = jnp.multiply(data, rnd_influences)
         result_arr = result_arr.sum(axis=1).ravel()  # + base
-        error_var = numpyro.sample("error", npdist.Exponential(.01))
+        error_var = numpyro.sample("error", npdist.Exponential(1 / .01))
 
         with numpyro.plate("data", result_arr.shape[0]):
             obs = numpyro.sample("observations", npdist.Normal(result_arr, error_var), obs=reference_y)
@@ -256,27 +257,63 @@ class ExtraStandardizingSimpleModel(NumPyroRegressor, StandardizingModel):
         rng_key_, rng_key = random.split(rng_key_)
         # mcmc.run(rng_key, X_agg[:, 0], X_agg[:, 1], X_agg[:, 2], given_obs=nfp_mean_agg, obs_stddev=nfp_stddev_agg)
         self.mcmc.run(rng_key, X, envs, n_envs, y)
-        print("finished fitting multilevel model")
         if self.plot:
-            reparam_config = {
-                "influences": LocScaleReparam(0),
-                "base": LocScaleReparam(0),
-            }
-            print("plotting prior trace")
-
-            reparam_model = reparam(self.model, config=reparam_config)
-            nuts_kernel = npNUTS(reparam_model)
-            prior_mcmc = npMCMC(nuts_kernel, num_samples=500,
-                                num_warmup=200, progress_bar=self.progress_bar,
-                                num_chains=self.num_chains, )
-            rng_key_ = random.PRNGKey(0)
-            rng_key_, rng_key = random.split(rng_key_)
-            # mcmc.run(rng_key, X_agg[:, 0], X_agg[:, 1], X_agg[:, 2], given_obs=nfp_mean_agg, obs_stddev=nfp_stddev_agg)
-            prior_mcmc.run(rng_key, X[:10,:], envs[:10], n_envs, None)
-            # arviz_data = self.get_arviz_data(prior_mcmc)
-            self.save_plot(prior_mcmc, loo=False)
+            # self.plot_prior_dists(X, envs, n_envs)
+            self.plot_options()
             self.save_plot()
         return self.mcmc
+
+    def plot_options(self, model_names=None, var_names=None):
+        var_names = var_names if var_names is not None else ["influences-mean-hyperior", "influences", ]
+        az_data = self.get_arviz_data()
+        num_plots = len(self.feature_names)
+        n_cols = 4
+        num_rows = (num_plots - 1) // n_cols + 1
+        num_cols = min(num_plots, n_cols)
+        print("n_plots", num_plots, "ncols", n_cols, "num_rows", num_rows, "num_cols", num_cols)
+
+        fig, axes = plt.subplots(num_rows, num_cols, figsize=(num_cols * 6, num_rows * 6))
+
+        for i, feature_name in enumerate(self.feature_names):
+            row = i // n_cols
+            col = i % n_cols
+            ax = axes[row, col] if num_rows > 1 else axes[col]
+            coords = {"features": [feature_name]}
+            az.plot_forest(az_data, combined=True,
+                           var_names=var_names,
+                           model_names=model_names,
+                           kind="ridgeplot",
+                           hdi_prob=0.999,
+                           ridgeplot_overlap=3,
+                           linewidth=3,
+                           coords=coords,
+                           ax=ax)
+
+            ax.set_xlim(-1.5, 1.5)
+            ax.set_title(f"Option influence {feature_name}")
+
+        plt.suptitle("Hyper Prior vs. Influences")
+        plt.tight_layout()
+        time.sleep(0.1)
+        plt.show()
+
+    def plot_prior_dists(self, X, envs, n_envs):
+        reparam_config = {
+            "influences": LocScaleReparam(0),
+            "base": LocScaleReparam(0),
+        }
+        print("plotting prior trace")
+        reparam_model = reparam(self.model, config=reparam_config)
+        nuts_kernel = npNUTS(reparam_model)
+        prior_mcmc = npMCMC(nuts_kernel, num_samples=500,
+                            num_warmup=1000, progress_bar=self.progress_bar,
+                            num_chains=self.num_chains, )
+        rng_key_ = random.PRNGKey(0)
+        rng_key_, rng_key = random.split(rng_key_)
+        # mcmc.run(rng_key, X_agg[:, 0], X_agg[:, 1], X_agg[:, 2], given_obs=nfp_mean_agg, obs_stddev=nfp_stddev_agg)
+        prior_mcmc.run(rng_key, X[:10, :], envs[:10], n_envs, None)
+        # arviz_data = self.get_arviz_data(prior_mcmc)
+        self.save_plot(prior_mcmc, loo=False)
 
     def predict(self, data: List[SingleEnvData]):
         X, envs, y = self.X_envids_y_from_data_for_prediction(data)
@@ -295,18 +332,19 @@ class ExtraStandardizingSimpleModel(NumPyroRegressor, StandardizingModel):
         return return_list
 
     def model(self, data, workloads, n_workloads, reference_y):
-        err_expectation = 0.5
-        err_hyperior_expectation = 1 /err_expectation
-        err_exponential_pdf_rate = 1/ err_hyperior_expectation
-        joint_coef_stdev = 0.5 #0.5  # 2 * y_order_of_magnitude
+        err_expectation = 0.3
+        err_hyperior_expectation = 1 / err_expectation
+        err_exponential_pdf_rate = 1 / err_hyperior_expectation
+        joint_coef_stdev = 0.5  # 0.5  # 2 * y_order_of_magnitude
         num_opts = data.shape[1]
-        coefs_expected_stddev_change_over_envs = 0.1 #0.5
-        coefs_hyperior_expected = 1/coefs_expected_stddev_change_over_envs
+        coefs_expected_stddev_change_over_envs = 0.1  # 0.5
+        coefs_hyperior_expected = 1 / coefs_expected_stddev_change_over_envs
         coefs_stds_prior_exp_rate = 1 / coefs_hyperior_expected
 
         with numpyro.plate("options", num_opts):
             hyper_coef_means = numpyro.sample("influences-mean-hyperior", npdist.Normal(0, joint_coef_stdev), )
-            hyper_coef_stddevs = numpyro.sample("influences-stddevs-hyperior", npdist.Exponential(coefs_hyperior_expected), )
+            hyper_coef_stddevs = numpyro.sample("influences-stddevs-hyperior",
+                                                npdist.Exponential(coefs_hyperior_expected), )
 
         # hyper_base_mean = numpyro.sample("base-mean-hyperior", npdist.Normal(0, joint_coef_stdev), )
         # hyper_base_stddev = numpyro.sample("base-stddevs-hyperior", npdist.Exponential(stddev_exp_prior), )
@@ -322,7 +360,7 @@ class ExtraStandardizingSimpleModel(NumPyroRegressor, StandardizingModel):
         # error_hyperior = numpyro.sample("error-hyperior", npdist.Gamma(2,0.1))
         # error_hyperior = numpyro.sample("error-hyperior", npdist.HalfNormal(1))
         with numpyro.plate("workloads", n_workloads):
-            error_var = numpyro.sample("error", npdist.Exponential(1/err_expectation))
+            error_var = numpyro.sample("error", npdist.Exponential(1 / err_expectation))
 
         right_error = error_var[workloads]
         respective_influences = rnd_influences[workloads]
