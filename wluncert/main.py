@@ -1,152 +1,19 @@
 import numpyro
 
+from wluncert.analysis import Evaluation
+from wluncert.experiment import Replication
+
 # must be run before any JAX imports
 numpyro.set_host_device_count(6)
 
 import os
-from typing import List, Dict
-import random
-import pandas as pd
-import arviz as az
-import matplotlib.pyplot as plt
-import wluncert.data as data
-from wluncert.data import DataLoaderStandard, DataAdapterJump3r, WorkloadTrainingDataSet, SingleEnvData
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from wluncert.data import DataLoaderStandard, DataAdapterJump3r, WorkloadTrainingDataSet
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.dummy import DummyRegressor
-from wluncert.models import NoPoolingEnvModel, get_pairwise_lasso_reg, ExtraStandardizingSimpleModel, \
-    ExtraStandardizingEnvAgnosticModel, CompletePoolingEnvModel
-from sklearn.metrics import mean_absolute_percentage_error, r2_score
-from tqdm import tqdm
+from wluncert.models import ExtraStandardizingSimpleModel, \
+    ExtraStandardizingEnvAgnosticModel, NoPoolingEnvModel, CompletePoolingEnvModel
 import argparse
-from joblib import Parallel, delayed
-
-
-class ExperimentMultitask:
-    def __init__(self, model_lbl, model, envs_lbl, environments_data: WorkloadTrainingDataSet, split_args: Dict,
-                 exp_id=None, rnd=0):
-        self.model = model
-        self.rnd = rnd
-        self.environments_data = environments_data
-        self.split_args_dict = split_args
-        list_of_single_env_data = self.environments_data.get_workloads_data()
-        self.train_list = []
-        self.test_list = []
-        self.predictions = []
-        self.model_lbl = model_lbl
-        self.envs_lbl = envs_lbl
-        self.exp_id = exp_id
-        for env_data in list_of_single_env_data:
-            split = env_data.get_split(rnd=self.rnd, **self.split_args_dict)
-            # train_data, test_data, _, _ = split.normalize()
-            train_data = split.train_data
-            test_data = split.test_data
-            self.train_list.append(train_data)
-            self.test_list.append(env_data)
-
-    def run(self):
-        # for train_data in self.train_list:
-        self.model.fit(self.train_list)
-        self.predictions = self.model.predict(self.test_list)
-        return self.predictions
-
-    def get_id(self):
-        deterministic_id = f"{self.model_lbl} on {self.envs_lbl} -{self.exp_id}-"
-        return deterministic_id
-
-    def eval(self):
-        eval = Evaluation()
-        errs_df = eval.scalar_accuracy(self.test_list, self.predictions)
-        errs_df["model"] = self.model_lbl
-        errs_df["setting"] = self.envs_lbl
-        errs_df["exp_id"] = self.exp_id
-        return errs_df
-
-
-class Evaluation:
-    def __init__(self):
-        pass
-
-    def scalar_accuracy(self, test_sets: List[SingleEnvData], predictions):
-        merged_y_true = []
-        merged_predictions = []
-        col_names = "err_type", "env", "err"
-        tups = []
-        err_type_mape = "mape"
-        err_type_r2 = "R2"
-        for test_set, y_pred in zip(test_sets, predictions):
-            y_true = test_set.get_y()
-            merged_y_true.append(y_true)
-            merged_predictions.append(y_pred)
-            mape = Evaluation.mape_100(y_true, y_pred)
-            r2 = Evaluation.R2(y_true, y_pred)
-            env_id = test_set.env_id
-            tups.append((err_type_mape, env_id, mape))
-            tups.append((err_type_r2, env_id, r2))
-        merged_err_mape = Evaluation.mape_100(merged_y_true, merged_predictions)
-        merged_err_R2 = Evaluation.R2(merged_y_true, merged_predictions)
-        overall_tup_mape = err_type_mape, "overall", merged_err_mape
-        overall_tup_R2 = err_type_r2, "overall", merged_err_R2
-        tups.append(overall_tup_mape)
-        tups.append(overall_tup_R2)
-        df = pd.DataFrame(tups, columns=col_names)
-        return df
-
-    @classmethod
-    def mape_100(cls, y_true, predictions):
-        return mean_absolute_percentage_error(y_true, predictions) * 100
-
-    @classmethod
-    def R2(cls, y_true, predictions):
-        return r2_score(y_true, predictions)
-
-
-class Replication:
-    def __init__(self, models: Dict, data_providers: Dict, train_sizes_relative_to_option_number, rnds=None,
-                 n_jobs=False):
-        self.models = models
-        self.n_jobs = n_jobs
-        self.data_providers = data_providers
-        self.train_sizes_relative_to_option_number = train_sizes_relative_to_option_number
-        self.rnds = rnds if rnds is not None else [0]
-
-    def run(self):
-        tasks = []
-        for model_lbl, model_proto in self.models.items():
-            for data_lbl, data_set in self.data_providers.items():
-                for train_size in self.train_sizes_relative_to_option_number:
-                    for rnd in self.rnds:
-                        task = ExperimentMultitask(model_lbl, model_proto, data_lbl, data_set,
-                                                   split_args={"n_train_samples_rel_opt_num": train_size},
-                                                   # exp_id=f"{train_size}-rnd-{rnd}",
-                                                   exp_id=train_size,
-                                                   rnd=rnd)
-                        tasks.append(task)
-
-        print("provisioned experiments", flush=True)
-
-        #
-        random.seed(self.rnds[0])
-        random.shuffle(tasks)
-        if self.n_jobs:
-            eval_dfs = Parallel(n_jobs=self.n_jobs)(delayed(self.handle_task)(task) for task in tqdm(tasks))
-        else:
-            eval_dfs = []
-            progress_bar = tqdm(total=len(tasks), desc="Running tasks", unit="task")
-            for task in tasks:
-                new_result = self.handle_task(task)
-                eval_dfs.append(new_result)
-                progress_bar.update(1)
-            progress_bar.close()
-        merged_df = pd.concat(eval_dfs)
-        return merged_df
-
-    # def handle_task(self, progress_bar, task):
-    def handle_task(self, task):
-        task.run()
-        errs = task.eval()
-        #
-        return errs
 
 
 def main():
@@ -154,11 +21,13 @@ def main():
     parser.add_argument('--jobs', type=int, default=None, help='Number of jobs for parallel mode')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
     parser.add_argument('--plot', action='store_true', help='Enable debug mode')
+    parser.add_argument('--no-store', action='store_true', help='Enable debug mode')
 
     args = parser.parse_args()
     n_jobs = args.jobs
     debug = args.debug
     plot = args.plot
+    do_store = not args.no_store
 
     print("pwd", os.getcwd())
     print("loading data")
@@ -171,10 +40,10 @@ def main():
     feature_names = list(wl_data.get_workloads_data()[0].get_X().columns)
     if debug:
         mcmc_num_warmup = 1000
-        mcmc_num_samples = 750
+        mcmc_num_samples = 500
         mcmc_num_chains = 3
     else:
-        mcmc_num_warmup = 1500
+        mcmc_num_warmup = 1000
         mcmc_num_samples = 1000
         mcmc_num_chains = 3
     progress_bar = False if n_jobs else True
@@ -200,7 +69,8 @@ def main():
     model_mcmc_no_pooling = NoPoolingEnvModel(mcmc_no_pooling_proto)
 
     model_partial_extra_standardization = ExtraStandardizingSimpleModel(plot=plot, feature_names=feature_names,
-                                                                        env_names=env_lbls, **mcmc_kwargs)
+                                                                        env_names=env_lbls, **mcmc_kwargs,
+                                                                        return_samples_by_default=True)
 
     complete_pooling_rf = CompletePoolingEnvModel(rf_proto)
     complete_pooling_mcmc = CompletePoolingEnvModel(mcmc_no_pooling_proto)
@@ -215,22 +85,29 @@ def main():
         "cpooling-mcmc": complete_pooling_mcmc,
     }
 
+    rep_lbl = "last-run"
     if debug:
         # debug_models = ["cpooling-mcmc"]
-        # debug_models = ["no-pooling-mcmc"]
-        debug_models = ["partial-pooling-mcmc-extra"]
+        # debug_models = ["cpooling-rf"]
+        debug_models = ["no-pooling-mcmc"]
+        # debug_models = ["partial-pooling-mcmc-extra"]
         models = {k: v for k, v in models.items() if k in debug_models}
-        train_sizes = [4, ]
-        rnds = list(range(1))
+        train_sizes = 1.0,  # 1.5, 2
+        rnds = [1]
+        rep_lbl = "debug4"
     else:
         # train_sizes = 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5
-        train_sizes = 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4
-        rnds = list(range(10))
+        train_sizes = 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 3, 4, 8, 10, 20, 30, 80, 100, 150, 175  # 250, 500,
+        rnds = list(range(5))
     print("created models")
 
-    rep = Replication(models, data_providers, train_sizes, rnds, n_jobs=n_jobs)
-    errs = rep.run()
-    errs.to_csv("./results/last_experiment.csv")
+    rep = Replication(models, data_providers, train_sizes, rnds, n_jobs=n_jobs, replication_lbl=rep_lbl)
+    merged_df_scores, merged_df_metas = rep.run()
+    if do_store:
+        rep.store()
+
+    # eval = Evaluation()
+
     print("DONE.")
 
 

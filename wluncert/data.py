@@ -20,6 +20,12 @@ class SingleEnvData:
         self.std = None
         self.mean = None
 
+    def get_len(self):
+        return len(list(self.get_y()))
+
+    def get_env_id(self):
+        return self.env_id
+
     def get_selected_nfp_name(self):
         return self.nfps[0]
 
@@ -114,7 +120,7 @@ class SingleEnvDataNormalized(SingleEnvData):
         y = np.atleast_2d(y).T
         nfp_name = self.default_to_selected_nfp(nfp_name)
         scaler = self.scaler_y[nfp_name]
-        inverse_y = scaler.inverse_transform(y).ravel()
+        inverse_y = scaler.inverse_transform(y)
         return inverse_y
 
 
@@ -215,8 +221,6 @@ class DataAdapter(DataSource, ABC):
     # @abstractmethod
     # def get_feature_names(self):
     #     pass
-
-
 
     @abstractmethod
     def get_nfps(self):

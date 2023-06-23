@@ -13,4 +13,6 @@ jax
 arviz
 bokeh
 absl-py
+pyarrow
+dask[complete]
 pycosa @ git+https://github.com/smba/pycosa-toolbox@6a3632c448003347c203187dc94a15819ed46875
