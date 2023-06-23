@@ -1,4 +1,6 @@
 import argparse
+import os
+import os.path
 import time
 from typing import List, Dict
 
@@ -14,133 +16,9 @@ from dask.distributed import Client, LocalCluster
 import arviz as az
 
 from wluncert.data import SingleEnvData
+from wluncert.utils import get_date_time_uuid
 from wluncert.models import NumPyroRegressor
 from dask.distributed import Client
-
-
-class Evaluation:
-    def __init__(self, default_ci_width=0.5):
-        self.default_ci_width = default_ci_width
-
-    def get_errors(self, df: dd.DataFrame):
-        pred_arr = np.atleast_2d(df["y_pred"].to_numpy()).T
-        modes = float(NumPyroRegressor.get_mode_from_samples(pred_arr)[0])
-        y_true = df["y_true"].iloc[0]  # np.array((df["y_true"]))[0]
-        ape = self.compute_ape(y_true, modes)
-        # R2 = self.R2(y_true, modes)
-        mape_ci = self.mape_ci(y_true, pred_arr)
-
-        series = pd.Series([y_true, ape, mape_ci])
-        return series
-
-    def scalar_accuracy(self, test_sets: List[SingleEnvData], predictions):
-        merged_y_true = []
-        merged_predictions = []
-        merged_predictions_samples = []
-
-        col_names = ["err_type", "env", "err"]
-        tups = []
-        err_type_mape = "mape"
-        err_type_r2 = "R2"
-        for test_set, y_pred in zip(test_sets, predictions):
-            y_true = test_set.get_y()
-            merged_y_true.extend(y_true)
-            if len(y_pred.shape) > 1 and y_pred.shape[1] > 1:
-                y_pred_samples = y_pred
-                y_pred = NumPyroRegressor.get_mode_from_samples(y_pred_samples.T)
-                merged_predictions_samples.extend(y_pred_samples)
-                mape_ci = self.mape_ci(y_true, y_pred_samples)
-            merged_predictions.extend(y_pred)
-            mape = Evaluation.mape_100(y_true, y_pred)
-
-            r2 = Evaluation.R2(y_true, y_pred)
-            env_id = test_set.env_id
-            tups.append((err_type_mape, env_id, mape))
-            tups.append((err_type_r2, env_id, r2))
-        merged_err_mape_ci = self.mape_ci(np.atleast_2d(merged_y_true).T, np.atleast_2d(merged_predictions).T)
-        merged_err_mape = Evaluation.mape_100(np.atleast_2d(merged_y_true).T, np.atleast_2d(merged_predictions).T)
-        merged_err_R2 = Evaluation.R2(merged_y_true, merged_predictions)
-        overall_tup_mape = err_type_mape, "overall", merged_err_mape
-        overall_tup_R2 = err_type_r2, "overall", merged_err_R2
-        tups.append(overall_tup_mape)
-        tups.append(overall_tup_R2)
-        df = pd.DataFrame(tups, columns=col_names)
-        return df
-
-    # def scalar_accuracy(self, test_sets: List[SingleEnvData], predictions):
-    def scalar_accuracy_on_dask(self, df_dd: dd.DataFrame):
-        df_dd = df_dd.drop(columns=["exp_id"], errors="ignore")
-        # get back to pandas because pivot_table is awkward in dask
-        # df = df_dd.compute()
-        merged_y_true = []
-        merged_predictions = []
-        col_names = "err_type", "env", "err"
-        tups = []
-        err_type_mape = "mape"
-        err_type_r2 = "R2"
-        df_index = ["model", "env_id", "budget_abs", "rnd", "subject_system", "testing_sample_idx"]
-        # debug_df = df.sample(frac=0.01)
-        # mcmc_rows_mask = np.array(debug_df["model"].str.contains("mcmc"))
-        # debug_df_samples = debug_df[mcmc_rows_mask]
-        # debug_df_samples = debug_df.iloc[mcmc_rows_mask, :]
-        # debug_df_scalar = debug_df[~mcmc_rows_mask]
-        # debug_df_scalar = debug_df.iloc[~mcmc_rows_mask, :]
-        # debug_df_samples["index-combined"] = debug_df_samples["model"].astype(str) + debug_df_samples["env_id"].astype(str) + debug_df_samples["budget_abs"].astype(str) + debug_df_samples["rnd"].astype(str) + debug_df_samples["subject_system"].astype(str) + debug_df_samples["testing_sample_idx"].astype(str)
-        # print("starting pandas")
-        # pivot_table_samples = debug_df_samples.pivot_table(values=["y_true", "y_pred"],
-        #                                            index=["model", "env_id", "budget_abs", "rnd", "subject_system",
-        #                                                   "testing_sample_idx"], aggfunc=self.enforce_scalar)
-        # pivot_table_scalar = debug_df_scalar.pivot_table(values=["y_true", "y_pred"],
-        #                                            index=["model", "env_id", "budget_abs", "rnd", "subject_system",
-        #                                                   "testing_sample_idx"])
-        # combined_pivot_table = pd.concat([pivot_table_samples, pivot_table_scalar])
-        # print(combined_pivot_table)
-
-        # debug_df.set_index(df_index)
-        # prediction_groups  = df.groupby(by=df_index)
-        # debug_df = df.sample(200_000)
-        # print(debug_df.head())
-        # modes = prediction_groups.aggregate(self.enforce_scalar, )
-        print("starting dask")
-        t_start = time.time()
-        df_result = df_dd.groupby(by=df_index).apply(lambda df: self.get_errors(df)).compute()
-        print(f"Aggregating samples took {time.time() - t_start}s")
-        print("done dask")
-        print(df_result)
-        predictions = list(np.array(df_result))
-        return df_result
-
-
-def main():
-    parser = argparse.ArgumentParser(description='Script description')
-    parser.add_argument('--results', type=str, help='path to results parquet file or similar')
-    args = parser.parse_args()
-    results = args.results
-    client = Client(n_workers=10, threads_per_worker=2, processes=True, memory_limit='auto')
-    print(client)
-
-    print("Start reading data")
-    idx = ["model", "env_id", "budget_abs", "rnd", "subject_system", "testing_sample_idx"]
-
-    # df = dd.read_parquet(results)
-    df = dd.read_parquet(results)  # index=idx,) #split_row_groups='adaptive', calculate_divisions=True)
-    print("Done reading")
-    err_type = "mape"
-    # err_type = "R2"
-    eval = Evaluation()
-    err_df = eval.scalar_accuracy_on_dask(df)
-
-    selected_error_df = df[df["err_type"] == err_type]
-    sns.relplot(data=selected_error_df, x="exp_id", y="err",
-                hue="model", col="env", kind="line", col_wrap=4, )  # row="setting", )
-    # plt.yscale("log")
-    plt.ylim((0, 50))
-    plt.savefig("./results/multitask-result.png", )
-    plt.show()
-
-
-if __name__ == "__main__":
-    main()
 
 
 class ModelEvaluation:
@@ -203,7 +81,6 @@ class ModelEvaluation:
     def add_mape_CI(self):
         self.eval_mape_ci = True
 
-
     def add_custom_model_dict(self, d: Dict):
         self.model_wise_dict = d
 
@@ -251,3 +128,72 @@ class ModelEvaluation:
         tups.append(overall_tup_R2)
         df = pd.DataFrame(tups, columns=col_names)
         return df
+
+
+class Analysis:
+    def __init__(self, base_path):
+        self.results_base_path = base_path
+        print("Start reading data")
+        self.idx = ["model", "env_id", "budget_abs", "rnd", "subject_system"]
+
+        scores_file_path = os.path.join(self.results_base_path, "scores.csv")
+        meta_file_path = os.path.join(self.results_base_path, "model-meta.csv")
+        my_id = get_date_time_uuid()
+        self.output_base_path = os.path.join(self.results_base_path, f"{my_id}-analysis")
+        os.makedirs(self.output_base_path)
+
+        self.score_df = pd.read_csv(scores_file_path)
+        self.meta_df = pd.read_csv(meta_file_path)
+
+        print("Done reading")
+        self.err_type = "mape"
+
+    def plot_errors(self, score_df=None, err_type=None):
+        print("start plotting errors")
+        score_df = score_df or self.score_df
+        err_type = err_type or self.err_type
+        selected_error_df = score_df[score_df["err_type"] == err_type]
+        sns.relplot(data=selected_error_df, x="exp_id", y="err",
+                    hue="model", col="env", kind="line", col_wrap=4, )  # row="setting", )
+        # plt.yscale("log")
+        plt.ylim((0, 50))
+        multitask_file = os.path.join(self.output_base_path, "multitask-result.png")
+        plt.savefig(multitask_file)
+        plt.show()
+        print("done")
+
+    def plot_metadata(self, meta_df=None):
+        print("start plotting metadata")
+        meta_df = meta_df or self.meta_df
+        # ignore some metrics
+        meta_df = meta_df.drop(meta_df[meta_df['metric'].isin(["warning", "scale"])].index)
+        meta_df["score"] = meta_df["score"].astype(float)
+        sns.relplot(data=meta_df, x="budget_abs", y="score",
+                    hue="model", col="metric", kind="line", col_wrap=4, facet_kws={'sharey': False, 'sharex': True})
+        metadata_file = os.path.join(self.output_base_path, "metadata.png")
+        plt.savefig(metadata_file)
+        plt.show()
+        # time.sleep(0.1)
+        print("done")
+
+    def run(self):
+        self.plot_metadata()
+        self.plot_errors()
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Script description')
+    parser.add_argument('--results', type=str, help='path to results parquet file or similar')
+    args = parser.parse_args()
+    results_base_path = args.results
+
+    al = Analysis(results_base_path)
+    al.run()
+
+
+    # plot_metadata(meta_df, output_base_path)
+    # plot_errors(err_type, output_base_path, score_df)
+
+
+if __name__ == "__main__":
+    main()

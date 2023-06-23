@@ -2,14 +2,13 @@ import warnings
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 import time
-from typing import List
 
 from matplotlib import pyplot as plt
-from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.base import BaseEstimator
 from abc import ABC, abstractmethod
 import numpyro.distributions as npdist
 from numpyro.infer import MCMC as npMCMC, NUTS as npNUTS, Predictive as npPredictive
-from jax import random, numpy as jnp
+from jax import random
 from numpyro.handlers import condition as npcondition
 import arviz as az
 import numpyro
@@ -25,14 +24,11 @@ import numpy as np
 from numpyro.handlers import reparam
 from numpyro.infer.reparam import LocScaleReparam
 
-from wluncert.data import SingleEnvData
-
 import copy
 from typing import List
 
 import pandas as pd
 from jax import numpy as jnp
-from sklearn.base import RegressorMixin
 
 from wluncert.data import SingleEnvData
 
@@ -80,7 +76,6 @@ class ExperimentationModelBase(ABC, BaseEstimator):
     @abstractmethod
     def _predict(self, param, param1):
         pass
-
 
 
 class StandardizingModel(ExperimentationModelBase):
@@ -311,7 +306,7 @@ class ExtraStandardizingEnvAgnosticModel(NumPyroRegressor):
         return numpyro_data
 
 
-class ExtraStandardizingSimpleModel(NumPyroRegressor, StandardizingModel):
+class MCMCMultilevelPartial(NumPyroRegressor, StandardizingModel):
     pooling_cat = PARTIAL_POOLING
 
     def __init__(self, *args, env_names=None, **kwargs):
@@ -460,7 +455,6 @@ class ExtraStandardizingSimpleModel(NumPyroRegressor, StandardizingModel):
             print("ELPD/LOO")
             waic_data = az.waic(arviz_data)
             print(waic_data)
-
         plot_vars = [v for v in list(arviz_data.posterior) if "decentered" not in v]
         file_template = "./tmp/mcmc-" + self.model_id + "-{}.png"
         plot_path = file_template.format("trace")  # "./tmp/mcmc-multilevel-trace.png"
@@ -472,12 +466,6 @@ class ExtraStandardizingSimpleModel(NumPyroRegressor, StandardizingModel):
         print("storing plot to", plot_path)
         plt.savefig(plot_path)
         plt.show()
-
-        # plot_path = file_template.format("forest")  # "./tmp/mcmc-multilevel-trace.png"
-        # az.plot_forest(arviz_data, var_names=plot_vars)
-        # plt.tight_layout()
-        # plt.savefig(plot_path)
-        # plt.show()
         print("finished plotting")
 
     def get_arviz_data(self, mcmc=None):
@@ -509,7 +497,67 @@ class ExtraStandardizingSimpleModel(NumPyroRegressor, StandardizingModel):
         return self.pooling_cat
 
 
-class ExtraStandardizingSimpleHyperHyper(ExtraStandardizingSimpleModel):
+class MCMCCombinedCompletePooling(MCMCMultilevelPartial):
+    def model(self, data, workloads, n_workloads, reference_y):
+        err_expectation = 0.3
+        num_opts = data.shape[1]
+        coefs_expected_stddev_change_over_envs = 0.2
+
+        with numpyro.plate("options", num_opts):
+            with numpyro.plate("workloads", n_workloads):
+                rnd_influences = numpyro.sample("influences",
+                                                npdist.Normal(0, coefs_expected_stddev_change_over_envs), )
+
+        with numpyro.plate("workloads", n_workloads):
+            error_var = numpyro.sample("error", npdist.Exponential(1 / err_expectation))
+
+        right_error = error_var[workloads]
+        respective_influences = rnd_influences[workloads]
+        result_arr = jnp.multiply(data, respective_influences)
+        result_arr = result_arr.sum(axis=1).ravel()
+
+        with numpyro.plate("data", result_arr.shape[0]):
+            obs = numpyro.sample("observations", npdist.Normal(result_arr, right_error), obs=reference_y)
+        return obs
+
+
+    def plot_options(self, model_names=None, var_names=None):
+        var_names = var_names if var_names is not None else ["influences", ]
+        az_data = self.get_arviz_data()
+        num_plots = len(self.feature_names)
+        n_cols = 4
+        num_rows = (num_plots - 1) // n_cols + 1
+        num_cols = min(num_plots, n_cols)
+        print("n_plots", num_plots, "ncols", n_cols, "num_rows", num_rows, "num_cols", num_cols)
+
+        fig, axes = plt.subplots(num_rows, num_cols, figsize=(num_cols * 6, num_rows * 6))
+
+        for i, feature_name in enumerate(self.feature_names):
+            row = i // n_cols
+            col = i % n_cols
+            ax = axes[row, col] if num_rows > 1 else axes[col]
+            coords = {"features": [feature_name]}
+            az.plot_forest(az_data, combined=True,
+                           var_names=var_names,
+                           model_names=model_names,
+                           kind="ridgeplot",
+                           hdi_prob=0.999,
+                           ridgeplot_overlap=3,
+                           linewidth=3,
+                           coords=coords,
+                           ax=ax)
+
+            ax.set_xlim(-1.5, 1.5)
+            ax.set_title(f"Option influence {feature_name}")
+
+        plt.suptitle("Influences across Envs")
+        plt.tight_layout()
+        time.sleep(0.1)
+        plt.show()
+
+
+
+class ExtraStandardizingSimpleHyperHyper(MCMCMultilevelPartial):
     pooling_cat = PARTIAL_POOLING
 
     def __init__(self, *args, **kwargs):
@@ -584,7 +632,6 @@ def get_pairwise_lasso_reg(lasso_alpha=0.0001):
     ])
 
     return pipeline
-
 
 
 class NoPoolingEnvModel(StandardizingModel):

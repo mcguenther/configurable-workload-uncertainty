@@ -1,15 +1,16 @@
 import os.path
 import random
-from datetime import datetime
 from typing import List, Dict
+
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
 from joblib import Parallel, delayed
 from tqdm import tqdm
 
-from wluncert.analysis import Evaluation, ModelEvaluation
+from wluncert.analysis import ModelEvaluation
 from wluncert.data import SingleEnvData
+from wluncert.utils import get_date_time_uuid
 
 
 class ExperimentMultitask:
@@ -108,7 +109,7 @@ class ExperimentMultitask:
 class Replication:
     def __init__(self, models: Dict, data_providers: Dict, train_sizes_relative_to_option_number, rnds=None,
                  n_jobs=False, replication_lbl="last-experiment", plot=False):
-        self.replication_lbl = self.get_date_time_uuid() + "-" + replication_lbl
+        self.replication_lbl = get_date_time_uuid() + "-" + replication_lbl
         self.plot = plot
         self.models = models
         self.n_jobs = n_jobs
@@ -116,11 +117,6 @@ class Replication:
         self.train_sizes_relative_to_option_number = train_sizes_relative_to_option_number
         self.rnds = rnds if rnds is not None else [0]
         self.result = None
-
-    def get_date_time_uuid(self):
-        current_datetime = datetime.now()
-        formatted_datetime = current_datetime.strftime("%Y-%m-%d_%H-%M-%S")
-        return formatted_datetime
 
     def run(self):
         tasks = []
@@ -201,6 +197,7 @@ class Replication:
         #                  name_function=lambda i: f"{self.replication_lbl}.part.{i}.parquet")
 
         # merged_df.to_parquet(f"{experiment_base_path}.parquet", index=False, compression="brotli")
+        return experiment_base_path
 
     # def handle_task(self, progress_bar, task):
     def handle_task(self, task: ExperimentMultitask):

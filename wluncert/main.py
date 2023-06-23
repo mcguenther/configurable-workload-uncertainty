@@ -1,19 +1,19 @@
 import numpyro
 
-from wluncert.analysis import Evaluation
-from wluncert.experiment import Replication
+from wluncert.analysis import Analysis
 
 # must be run before any JAX imports
 numpyro.set_host_device_count(6)
 
+import argparse
+from wluncert.experiment import Replication
 import os
 from wluncert.data import DataLoaderStandard, DataAdapterJump3r, WorkloadTrainingDataSet
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.dummy import DummyRegressor
-from wluncert.models import ExtraStandardizingSimpleModel, \
-    ExtraStandardizingEnvAgnosticModel, NoPoolingEnvModel, CompletePoolingEnvModel
-import argparse
+from wluncert.models import MCMCMultilevelPartial, \
+    ExtraStandardizingEnvAgnosticModel, NoPoolingEnvModel, CompletePoolingEnvModel, MCMCCombinedCompletePooling
 
 
 def main():
@@ -68,9 +68,12 @@ def main():
     mcmc_no_pooling_proto = ExtraStandardizingEnvAgnosticModel(plot=plot, feature_names=feature_names, **mcmc_kwargs)
     model_mcmc_no_pooling = NoPoolingEnvModel(mcmc_no_pooling_proto)
 
-    model_partial_extra_standardization = ExtraStandardizingSimpleModel(plot=plot, feature_names=feature_names,
-                                                                        env_names=env_lbls, **mcmc_kwargs,
-                                                                        return_samples_by_default=True)
+    model_partial_extra_standardization = MCMCMultilevelPartial(plot=plot, feature_names=feature_names,
+                                                                env_names=env_lbls, **mcmc_kwargs,
+                                                                return_samples_by_default=True)
+    model_complete_pooling_combined = MCMCCombinedCompletePooling(plot=plot, feature_names=feature_names,
+                                                                  env_names=env_lbls, **mcmc_kwargs,
+                                                                  return_samples_by_default=True)
 
     complete_pooling_rf = CompletePoolingEnvModel(rf_proto)
     complete_pooling_mcmc = CompletePoolingEnvModel(mcmc_no_pooling_proto)
@@ -83,13 +86,15 @@ def main():
         "no-pooling-dummy": model_dummy,
         "cpooling-rf": complete_pooling_rf,
         "cpooling-mcmc": complete_pooling_mcmc,
+        "cpooling-mcmc-1model": model_complete_pooling_combined,
     }
 
     rep_lbl = "last-run"
     if debug:
         # debug_models = ["cpooling-mcmc"]
         # debug_models = ["cpooling-rf"]
-        debug_models = ["no-pooling-mcmc"]
+        # debug_models = ["no-pooling-mcmc"]
+        debug_models = ["cpooling-mcmc-1model"]
         # debug_models = ["partial-pooling-mcmc-extra"]
         models = {k: v for k, v in models.items() if k in debug_models}
         train_sizes = 1.0,  # 1.5, 2
@@ -104,11 +109,15 @@ def main():
     rep = Replication(models, data_providers, train_sizes, rnds, n_jobs=n_jobs, replication_lbl=rep_lbl)
     merged_df_scores, merged_df_metas = rep.run()
     if do_store:
-        rep.store()
+        experiment_base_path = rep.store()
+        al = Analysis(experiment_base_path)
+        al.run()
 
     # eval = Evaluation()
 
-    print("DONE.")
+    print("DONE with experiment.")
+
+    print("running analysis")
 
 
 if __name__ == "__main__":
