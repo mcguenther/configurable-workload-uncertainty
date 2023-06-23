@@ -202,7 +202,7 @@ class Replication:
     # def handle_task(self, progress_bar, task):
     def handle_task(self, task: ExperimentMultitask):
         predictions = task.run()
-        eval = Evaluation
+        # eval = ModelEvaluation()
         # eval.scalar_accuracy_on_dask()
         errs, meta = task.eval()
         #

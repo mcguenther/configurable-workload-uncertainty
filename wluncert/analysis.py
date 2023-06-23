@@ -141,6 +141,7 @@ class Analysis:
         my_id = get_date_time_uuid()
         self.output_base_path = os.path.join(self.results_base_path, f"{my_id}-analysis")
         os.makedirs(self.output_base_path)
+        print(f"plotting to {self.output_base_path}")
 
         self.score_df = pd.read_csv(scores_file_path)
         self.meta_df = pd.read_csv(meta_file_path)
