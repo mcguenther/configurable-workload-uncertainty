@@ -30,7 +30,7 @@ from typing import List
 import pandas as pd
 from jax import numpy as jnp
 
-from wluncert.data import SingleEnvData, WorkloadTrainingDataSet
+from data import SingleEnvData, WorkloadTrainingDataSet
 
 # from wluncert.analysis import ModelEvaluation
 
@@ -133,7 +133,7 @@ class StandardizingModel(ExperimentationModelBase):
 
 class NumPyroRegressor(ExperimentationModelBase):
     def __init__(self, num_samples=500, num_warmup=1000, num_chains=3, progress_bar=False, plot=False,
-                  return_samples_by_default=False):
+                 return_samples_by_default=False):
         super().__init__()
         self.coef_ = None
         self.samples = None
@@ -230,85 +230,6 @@ class NumPyroRegressor(ExperimentationModelBase):
         hdi = az.hdi(samples, hdi_prob=0.1)
         modes = np.mean(hdi, axis=1)
         return modes
-
-
-class ExtraStandardizingEnvAgnosticModel(NumPyroRegressor):
-
-    def __init__(self, *args, **kwargs):
-        NumPyroRegressor.__init__(self, *args, **kwargs)
-        self.env_lbl = None
-
-    def set_env_lbl(self, env_lbl):
-        self.env_lbl = env_lbl
-
-    def coef_ci(self, ci: float):
-        pass
-
-    def get_tuples(self, feature_names):
-        pass
-
-    def _fit(self, X, y):
-        X = self.get_jnp_array(X)
-        y = jnp.array(y)
-        nuts_kernel = npNUTS(self.model)
-        self.mcmc = npMCMC(nuts_kernel, num_samples=self.num_samples,
-                           num_warmup=self.num_warmup, progress_bar=self.progress_bar,
-                           num_chains=self.num_chains, chain_method="parallel")
-        rng_key_ = random.PRNGKey(0)
-        rng_key_, rng_key = random.split(rng_key_)
-        self.mcmc.run(rng_key, X, y)
-        if self.plot:
-            self.save_plot()
-        return self.mcmc
-
-    def save_plot(self):
-        arviz_data = self.get_arviz_data()
-        az.plot_trace(arviz_data, legend=False, combined=True, chain_prop={"ls": "-"})
-        plt.tight_layout()
-        plt.suptitle(self.env_lbl)
-        plt.savefig("./tmp/mcmc-agnostic.png")
-        plt.show()
-
-        # print(az.summary(arviz_data))
-        print("ELPD/LOO")
-        waic_data = az.waic(arviz_data)
-        print(waic_data)
-
-    def _predict(self, X, n_samples: int = 1500, ci: float = None, yield_samples=False):
-        x = jnp.atleast_2d(np.array(X.astype(float)))
-        result = self._internal_predict([x])
-        return result
-
-    def model(self, data, reference_y):
-        joint_coef_stdev = 0.5  # 0.25  # 2 * y_order_of_magnitude
-        num_opts = data.shape[1]
-
-        with numpyro.plate("options", num_opts):
-            rnd_influences = numpyro.sample("influences", npdist.Normal(0, joint_coef_stdev), )
-
-        # base = numpyro.sample("base", npdist.Laplace(0, joint_coef_stdev))
-        result_arr = jnp.multiply(data, rnd_influences)
-        result_arr = result_arr.sum(axis=1).ravel()  # + base
-        error_var = numpyro.sample("error", npdist.Exponential(1 / .01))
-
-        with numpyro.plate("data", result_arr.shape[0]):
-            obs = numpyro.sample("observations", npdist.Normal(result_arr, error_var), obs=reference_y)
-        return obs
-
-    def get_arviz_data(self):
-        features_lbl = "features"
-        coords = {
-            features_lbl: self.feature_names,
-        }
-        dims = {
-            "influences": [features_lbl],
-        }
-        kwargs = {
-            "dims": dims,
-            "coords": coords,
-        }
-        numpyro_data = az.from_numpyro(self.mcmc, **kwargs)
-        return numpyro_data
 
 
 class MCMCMultilevelPartial(NumPyroRegressor, StandardizingModel):
@@ -520,7 +441,7 @@ class MCMCPartialRobust(MCMCMultilevelPartial):
 
         with numpyro.plate("options", num_opts):
             hyper_coef_means = numpyro.sample("influences-mean-hyperior",
-                                              npdist.Laplace(0, joint_coef_stdev / 8), )
+                                              npdist.Laplace(0, joint_coef_stdev / 4), )
             hyper_coef_stddevs = numpyro.sample("influences-stddevs-hyperior",
                                                 npdist.Exponential(coefs_hyperior_expected), )
 
@@ -528,7 +449,7 @@ class MCMCPartialRobust(MCMCMultilevelPartial):
             with numpyro.plate("workloads", n_workloads):
                 # rnd_influences = numpyro.sample("influences", npdist.Normal(hyper_coef_means, hyper_coef_stddevs), )
                 # rnd_influences = numpyro.sample("influences", npdist.Cauchy(hyper_coef_means, hyper_coef_stddevs), )
-                rnd_influences = numpyro.sample("influences", npdist.Cauchy(hyper_coef_means, hyper_coef_stddevs), )
+                rnd_influences = numpyro.sample("influences", npdist.Normal(hyper_coef_means, hyper_coef_stddevs), )
 
         with numpyro.plate("workloads", n_workloads):
             error_var = numpyro.sample("error", npdist.Exponential(1 / err_expectation))
@@ -652,7 +573,6 @@ class MCMCCombinedNoPooling(MCMCMultilevelPartial):
         plt.show()
 
 
-
 class MCMCCombinedCompletePooling(MCMCCombinedNoPooling):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -675,26 +595,20 @@ class MCMCCombinedCompletePooling(MCMCCombinedNoPooling):
         return obs
 
     def get_arviz_data(self, mcmc=None):
-        mcmc = self.mcmc if not mcmc else mcmc
+        mcmc = mcmc or self.mcmc
         features_lbl = "features"
-        env_lbl = "envs"
         coords = {
             features_lbl: self.feature_names,
         }
         dims = {
             "influences": [features_lbl],
-            "influences_decentered": [features_lbl],
-            # "base": [env_lbl],
-            # "base_decentered": [env_lbl],
         }
         kwargs = {
             "dims": dims,
             "coords": coords,
-            # "constant_data": {"x": xdata}
         }
         numpyro_data = az.from_numpyro(mcmc, **kwargs)
         return numpyro_data
-
 
     # def plot_options(self, model_names=None, var_names=None):
     #     var_names = var_names if var_names is not None else ["influences", ]

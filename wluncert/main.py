@@ -13,8 +13,7 @@ from wluncert.data import DataLoaderStandard, DataAdapterJump3r, WorkloadTrainin
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.dummy import DummyRegressor
-from wluncert.models import MCMCMultilevelPartial, \
-    ExtraStandardizingEnvAgnosticModel, NoPoolingEnvModel, CompletePoolingEnvModel, MCMCCombinedNoPooling, \
+from wluncert.models import MCMCMultilevelPartial, NoPoolingEnvModel, CompletePoolingEnvModel, MCMCCombinedNoPooling, \
     MCMCPartialRobust, MCMCPartialHorseshoe, MCMCCombinedCompletePooling
 
 
@@ -59,8 +58,8 @@ def main():
     mcmc_kwargs = {"num_warmup": mcmc_num_warmup, "num_samples": mcmc_num_samples, "num_chains": mcmc_num_chains,
                    "progress_bar": progress_bar}
     data_providers = {
-        # "jump3r": wl_data,
-        "xz": xz_wl_data,
+        "jump3r": wl_data,
+        # "xz": xz_wl_data,
     }
 
     print("loaded data")
@@ -77,8 +76,6 @@ def main():
     dummy_proto = DummyRegressor()
     model_dummy = NoPoolingEnvModel(dummy_proto)
 
-    mcmc_no_pooling_proto = ExtraStandardizingEnvAgnosticModel(plot=plot, **mcmc_kwargs)
-    model_mcmc_no_pooling = NoPoolingEnvModel(mcmc_no_pooling_proto)
 
     model_partial_extra_standardization = MCMCMultilevelPartial(plot=plot, **mcmc_kwargs,
                                                                 return_samples_by_default=True)
@@ -96,17 +93,14 @@ def main():
                                                             return_samples_by_default=True)
 
     complete_pooling_rf = CompletePoolingEnvModel(rf_proto)
-    complete_pooling_mcmc = CompletePoolingEnvModel(mcmc_no_pooling_proto)
 
     models = {
         "partial-pooling-mcmc-extra": model_partial_extra_standardization,
         "partial-pooling-mcmc-robust": model_multilevel_partial_robust,
-        "no-pooling-mcmc": model_mcmc_no_pooling,
         "no-pooling-rf": model_rf,
         "no-pooling-lin": model_lin_reg,
         "no-pooling-dummy": model_dummy,
         "cpooling-rf": complete_pooling_rf,
-        "cpooling-mcmc": complete_pooling_mcmc,
         "no-pooling-mcmc-1model": model_no_pooling_combined,
         "cpooling-mcmc-1model": model_complete_pooling_combined,
         "partial-pooling-mcmc-horseshoe": model_multilevel_partial_horseshoe,
@@ -114,21 +108,23 @@ def main():
 
     rep_lbl = "full-run"
     if debug:
-        # debug_models = ["cpooling-mcmc"]
-        # debug_models = ["cpooling-rf"]
-        # debug_models = ["no-pooling-mcmc"]
-        # debug_models = ["cpooling-mcmc-1model", "partial-pooling-mcmc-extra", "no-pooling-rf"]
-        # debug_models = ["partial-pooling-mcmc-extra"]
-        debug_models = ["cpooling-mcmc-1model"]
-        # debug_models = ["partial-pooling-mcmc-robust"]
-        # debug_models = ["partial-pooling-mcmc-horseshoe"]
-        # debug_models = ["partial-pooling-mcmc-extra", "partial-pooling-mcmc-robust", "partial-pooling-mcmc-horseshoe"]
-        models = {k: v for k, v in models.items() if k in debug_models}
-        train_sizes = 0.25, 0.5, 0.625, 0.75, 1.0, 1.25, 1.5, 1.75, 2, 3
+        chosen_model_lbls = []
+        # chosen_model_lbls.extend(["cpooling-rf"])
+        # chosen_model_lbls.extend(["cpooling-mcmc-1model", "partial-pooling-mcmc-extra", "no-pooling-rf"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-extra"])
+        # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
+        # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
+        chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-extra", "partial-pooling-mcmc-robust", "partial-pooling-mcmc-horseshoe"])
+
+        models = {k: v for k, v in models.items() if k in chosen_model_lbls}
         train_sizes = 0.75,
-        rnds = list(range(5))
+        train_sizes = 0.25, 0.5, 0.625, 0.75, 1.0, 1.25, 1.5, 1.75, 2, 3
+        train_sizes = 0.5,0.75, 1.0, 1.5, 2, 5, 10
         rnds = list([11,222,333,44,55,666,77,888,99])
-        rnds = [5]
+        rnds = [3]
+        rnds = list(range(5))
 
         rep_lbl = "debug-1modelvs partial"
     else:

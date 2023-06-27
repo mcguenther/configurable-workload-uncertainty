@@ -4,15 +4,15 @@ graphviz
 networkx
 scikit-learn
 Markdown
-numpy
+numpy==1.25.0
 joblib
-streamlit
+streamlit==1.24.0
 pyro-ppl
 numpyro[cpu]
-jax
+jax==0.4.13
 arviz
 bokeh
 absl-py
 pyarrow
 dask[complete]
-pycosa @ git+https://github.com/smba/pycosa-toolbox@6a3632c448003347c203187dc94a15819ed46875
+pycosa@ git+https://github.com/smba/pycosa-toolbox@6a3632c448003347c203187dc94a15819ed46875

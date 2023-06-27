@@ -9,16 +9,11 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_absolute_percentage_error, r2_score
-import dask.dataframe as dd
-import dask
-from dask.distributed import Client, LocalCluster
 
 import arviz as az
 
-from wluncert.data import SingleEnvData
-from wluncert.utils import get_date_time_uuid
-from wluncert.models import NumPyroRegressor
-from dask.distributed import Client
+from utils import get_date_time_uuid
+from models import NumPyroRegressor
 
 
 class ModelEvaluation:
@@ -180,8 +175,7 @@ class Analysis:
         print("start plotting metadata")
         meta_df = meta_df or self.meta_df
         # ignore some metrics
-        meta_df = meta_df.drop(meta_df[meta_df['metric'].isin(["warning", "scale"])].index)
-        meta_df["score"] = meta_df["score"].astype(float)
+        meta_df = self.get_meta_df(meta_df)
         sns.relplot(data=meta_df, x="budget_abs", y="score",
                     hue="model", col="metric", kind="line", col_wrap=4, facet_kws={'sharey': False, 'sharex': True})
         metadata_file = os.path.join(self.output_base_path, "metadata.png")
@@ -189,6 +183,12 @@ class Analysis:
         plt.show()
         # time.sleep(0.1)
         print("done")
+
+    def get_meta_df(self, meta_df=None):
+        meta_df = meta_df if meta_df is not None else self.meta_df
+        meta_df = meta_df.drop(meta_df[meta_df['metric'].isin(["warning", "scale"])].index)
+        meta_df["score"] = meta_df["score"].astype(float)
+        return meta_df
 
     def run(self):
         self.plot_metadata()
