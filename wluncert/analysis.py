@@ -22,7 +22,7 @@ from dask.distributed import Client
 
 
 class ModelEvaluation:
-    def __init__(self, predictions, test_list, train_list, meta_df, default_ci_width=0.5):
+    def __init__(self, predictions, test_list, train_list, meta_df, default_ci_width=0.68):
         self.predictions_samples = None
         self.default_ci_width = default_ci_width
         self.predictions = predictions
@@ -57,20 +57,22 @@ class ModelEvaluation:
         return r2_score(flattened_y_true, reshaped_predictions)
 
     def compute_ape(self, y_true, y_pred):
-        return np.abs(y_true - y_pred / y_true)
+        return np.abs((y_true - y_pred) / y_true) * 100
 
     def mape_ci(self, y_true, pred_arr, ci=None):
         ci = ci or self.default_ci_width
-        interval = az.hdi(pred_arr, hdi_prob=ci).ravel()
-        lower, upper = interval[0], interval[1]
+        intervals = az.hdi(pred_arr.T, hdi_prob=ci)  # .ravel()
+        lowers, uppers = intervals[:, 0], intervals[:, 1]
 
-        if lower < y_true < upper:
-            err = 0
-        elif y_true > upper:
-            err = self.compute_ape(y_true, upper)
-        else:
-            err = self.compute_ape(y_true, lower)
-        return err
+        mask_y_true_in_lower_bound = lowers < y_true
+        mask_y_true_in_upper_bound = y_true < uppers
+        ape_cis = np.zeros_like(mask_y_true_in_lower_bound).astype(float)
+        ape_cis[~mask_y_true_in_lower_bound] = self.compute_ape(y_true[~mask_y_true_in_lower_bound],
+                                                                lowers[~mask_y_true_in_lower_bound])
+        ape_cis[~mask_y_true_in_upper_bound] = self.compute_ape(y_true[~mask_y_true_in_upper_bound],
+                                                                uppers[~mask_y_true_in_upper_bound])
+        mape = ape_cis.mean()
+        return mape
 
     def add_mape(self):
         self.eval_mape = True
@@ -99,33 +101,38 @@ class ModelEvaluation:
         err_type_r2 = "R2"
         err_type_mape_ci = "mape_ci"
         pred_has_samples = self.predictions_samples is not None
-        for test_set, y_pred in zip(self.test_list, self.predictions):
+        for i, (test_set, y_pred) in enumerate(zip(self.test_list, self.predictions)):
             y_true = test_set.get_y()
             merged_y_true.extend(y_true)
             env_id = test_set.env_id
-            pred_has_samples = len(y_pred.shape) > 1 and y_pred.shape[1] > 1
+            # pred_has_samples = len(y_pred.shape) > 1 and y_pred.shape[1] > 1
             if pred_has_samples:
-                y_pred_samples = y_pred
-                y_pred = NumPyroRegressor.get_mode_from_samples(y_pred_samples.T)
-                merged_predictions_samples.extend(y_pred_samples)
-                mape_ci = self.mape_ci(y_true, y_pred_samples)
-                tups.append((err_type_mape_ci, env_id, mape_ci))
+                raw_samples = self.predictions_samples[i]
+                # y_pred_samples = y_pred
+                # y_pred = NumPyroRegressor.get_mode_from_samples(raw_samples.T)
+                merged_predictions_samples.extend(raw_samples)
+                if self.eval_mape_ci:
+                    mape_ci = self.mape_ci(y_true, raw_samples)
+                    tups.append((err_type_mape_ci, env_id, mape_ci))
             merged_predictions.extend(y_pred)
-            mape = self.mape_100(y_true.ravel(), y_pred)
-
-            r2 = self.R2(y_true, y_pred)
-            tups.append((err_type_mape, env_id, mape))
-            tups.append((err_type_r2, env_id, r2))
-        if pred_has_samples:
-            merged_err_mape_ci = self.mape_ci(np.atleast_2d(merged_y_true).T, np.atleast_2d(merged_predictions).T)
+            if self.eval_mape:
+                mape = self.mape_100(y_true.ravel(), y_pred)
+                tups.append((err_type_mape, env_id, mape))
+            if self.eval_R2:
+                r2 = self.R2(y_true, y_pred)
+                tups.append((err_type_r2, env_id, r2))
+        if pred_has_samples and self.eval_mape_ci:
+            merged_err_mape_ci = self.mape_ci(np.atleast_1d(merged_y_true).T, np.atleast_2d(merged_predictions_samples))
             overall_tup_mape_ci = err_type_mape_ci, "overall", merged_err_mape_ci
             tups.append(overall_tup_mape_ci)
-        merged_err_mape = self.mape_100(np.atleast_2d(merged_y_true).T, np.atleast_2d(merged_predictions).T)
-        merged_err_R2 = self.R2(merged_y_true, merged_predictions)
-        overall_tup_mape = err_type_mape, "overall", merged_err_mape
-        overall_tup_R2 = err_type_r2, "overall", merged_err_R2
-        tups.append(overall_tup_mape)
-        tups.append(overall_tup_R2)
+        if self.eval_mape:
+            merged_err_mape = self.mape_100(np.atleast_2d(merged_y_true).T, np.atleast_2d(merged_predictions).T)
+            overall_tup_mape = err_type_mape, "overall", merged_err_mape
+            tups.append(overall_tup_mape)
+        if self.eval_R2:
+            merged_err_R2 = self.R2(merged_y_true, merged_predictions)
+            overall_tup_R2 = err_type_r2, "overall", merged_err_R2
+            tups.append(overall_tup_R2)
         df = pd.DataFrame(tups, columns=col_names)
         return df
 
@@ -152,15 +159,21 @@ class Analysis:
     def plot_errors(self, score_df=None, err_type=None):
         print("start plotting errors")
         score_df = score_df or self.score_df
-        err_type = err_type or self.err_type
-        selected_error_df = score_df[score_df["err_type"] == err_type]
-        sns.relplot(data=selected_error_df, x="exp_id", y="err",
-                    hue="model", col="env", kind="line", col_wrap=4, )  # row="setting", )
-        # plt.yscale("log")
-        plt.ylim((0, 50))
-        multitask_file = os.path.join(self.output_base_path, "multitask-result.png")
-        plt.savefig(multitask_file)
-        plt.show()
+        # err_type = err_type or self.err_type
+        for err_type in score_df["err_type"].unique():
+            selected_error_df = score_df[score_df["err_type"] == err_type]
+            sns.relplot(data=selected_error_df, x="exp_id", y="err",
+                        hue="model", col="env", kind="line", col_wrap=4, )  # row="setting", )
+            # plt.yscale("log")
+            plt.suptitle(err_type)
+            if "mape" in err_type:
+                pass
+                plt.ylim((0, 270))
+            elif "R2" in err_type:
+                plt.ylim((-0.5, 1.1))
+            multitask_file = os.path.join(self.output_base_path, f"multitask-result-{err_type}.png")
+            plt.savefig(multitask_file)
+            plt.show()
         print("done")
 
     def plot_metadata(self, meta_df=None):
@@ -190,7 +203,6 @@ def main():
 
     al = Analysis(results_base_path)
     al.run()
-
 
     # plot_metadata(meta_df, output_base_path)
     # plot_errors(err_type, output_base_path, score_df)

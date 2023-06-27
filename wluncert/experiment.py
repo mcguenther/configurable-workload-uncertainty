@@ -1,3 +1,4 @@
+import copy
 import os.path
 import random
 from typing import List, Dict
@@ -122,6 +123,8 @@ class Replication:
         tasks = []
         for model_lbl, model_proto in self.models.items():
             for data_lbl, data_set in self.data_providers.items():
+                model_proto_for_env = copy.deepcopy(model_proto)
+                model_proto_for_env.set_envs(data_set)
                 for train_size in self.train_sizes_relative_to_option_number:
                     for rnd in self.rnds:
                         data_per_env: List[SingleEnvData] = data_set.get_workloads_data()
@@ -133,8 +136,8 @@ class Replication:
                             train_list.append(train_data)
                             test_list.append(env_data)
 
-                        pooling_cat = model_proto.get_pooling_cat()
-                        task = ExperimentMultitask(model_lbl, model_proto, data_lbl, train_list, test_list,
+                        pooling_cat = model_proto_for_env.get_pooling_cat()
+                        task = ExperimentMultitask(model_lbl, model_proto_for_env, data_lbl, train_list, test_list,
                                                    # exp_id=f"{train_size}-rnd-{rnd}",
                                                    train_size=train_size,
                                                    pooling_cat=pooling_cat,

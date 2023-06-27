@@ -1,3 +1,4 @@
+import os.path
 from abc import ABC, abstractmethod
 import copy
 from typing import List
@@ -50,12 +51,11 @@ class SingleEnvData:
 
     def get_y(self, nfp_name=None):
         nfp_name = self.default_to_selected_nfp(nfp_name)
-        y = np.array(self.df[nfp_name])
+        y = self.df[nfp_name].to_numpy()
         return y
 
-    def default_to_selected_nfp(self, nfp_name):
-        if nfp_name is None:
-            nfp_name = self.get_selected_nfp_name()
+    def default_to_selected_nfp(self, nfp_name=None):
+        nfp_name = nfp_name or self.get_selected_nfp_name()
         return nfp_name
 
     def get_split(self, n_train_samples_abs=None, n_train_samples_rel_opt_num=None, rnd=0):
@@ -141,11 +141,21 @@ class WorkloadTrainingDataSet:
         self.environment_col_name = environment_col_name
         self.environment_lables = list(environment_lables)
         self.nfps = list(nfps)
+        self.wl_data = self._get_workloads_data()
 
     def get_df(self):
         return self.df
+    def get_env_lables(self):
+        return self.environment_lables
+
+    def get_feature_names(self):
+        single_ens_data_list = self.get_workloads_data()
+        my_env = single_ens_data_list[0]
+        return my_env.get_feature_names()
 
     def get_workloads_data(self, workload_lables=None) -> list[SingleEnvData]:
+        return self.wl_data
+    def _get_workloads_data(self, workload_lables=None) -> list[SingleEnvData]:
         if workload_lables is None:
             workload_lables = self.environment_lables
         for wl_lable in workload_lables:
@@ -194,6 +204,37 @@ class DataLoaderStandard():
         return df
 
 
+class DataLoaderDashboardData():
+    def __init__(self, base_path):
+        super().__init__()
+        self.base_path = base_path
+        self.nfps = []
+        self.worload_col_name = "workload"
+        self.cleared_sys_df = self._process_csv()
+
+    def _process_csv(self):
+        sample_path = os.path.join(self.base_path, "sample.csv")
+        measurements_path = os.path.join(self.base_path, "measurements.csv")
+        sample_df = pd.read_csv(sample_path)
+        measurement_df = pd.read_csv(measurements_path)
+        joined_df = pd.merge(sample_df, measurement_df, on="config_id")
+        joined_df = joined_df.drop(columns=["partition", "config_id"])
+        # nfps = "time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
+        # "config_id,partition,workload"
+        col_names_to_exclude = "partition", "config_id", self.worload_col_name
+        self.nfps = [c for c in measurement_df.columns if c not in col_names_to_exclude]
+
+        df_no_multicollinearity = remove_multicollinearity(joined_df)
+        self.cleared_sys_df = copy.deepcopy(df_no_multicollinearity)
+        return self.cleared_sys_df
+
+    def get_standard_CSV(self):
+        return self.cleared_sys_df
+
+    def get_df(self):
+        return self.cleared_sys_df
+
+
 class DataSource(ABC):
     def __init__(self):
         self.environment_col_name = "workload"
@@ -239,10 +280,13 @@ class DataAdapter(DataSource, ABC):
 
 class DataAdapterXZ(DataAdapter):
     def __init__(self, data_loader: DataLoaderStandard):
-        self.environment_col_name = "workload_id"
-        self.nfps = ["time", "max-resident-size"]
-        self.environment_lables = None
+        # self.environment_col_name = "workload"
+        # self.nfps = ["time", "max-resident-size"]
         super().__init__(data_loader)
+        # self.environment_lables = None #list(cleared_df[data_loader.worload_col_name].unique())
+        self.nfps = [nfp for nfp in data_loader.nfps if "resident" not in nfp and "mem" not in nfp]   #"time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
+        # self.nfps =  [nfp for nfp in data_loader.nfps if "resident" not in nfp and "mem" not in nfp]   #"time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
+
 
     def get_environment_col_name(self):
         return self.environment_col_name
@@ -254,6 +298,13 @@ class DataAdapterXZ(DataAdapter):
         return self.nfps
 
     def get_transformed_df(self, cleared_sys_df, ):
+        unwanted_wl = "artificl.tar"
+        cleared_sys_df_wanted_wls = cleared_sys_df.loc[cleared_sys_df[self.environment_col_name] != unwanted_wl]
+
+        cleared_sys_df_wanted_wls[self.environment_col_name], self.environment_lables = cleared_sys_df_wanted_wls[
+            self.environment_col_name].factorize()
+
+        return cleared_sys_df_wanted_wls# self.get_df()
         uiq_df = cleared_sys_df.loc[cleared_sys_df["workload"].str.contains("uiq")]
         # uiq_df["workload-scale"] = None
         uiq_df.loc[uiq_df["workload"] == "uiq2-4.bin", "workload-scale"] = 4
@@ -278,7 +329,6 @@ class DataAdapterXZ(DataAdapter):
 
 
 class DataAdapterJump3r(DataAdapter):
-
     def __init__(self, data_loader: DataLoaderStandard):
         self.environment_col_name = "workload_id"
         self.nfps = ["time", "max-resident-size"]
