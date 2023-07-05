@@ -23,14 +23,14 @@ import numpy as np
 
 from numpyro.handlers import reparam
 from numpyro.infer.reparam import LocScaleReparam
-
+import seaborn as sns
 import copy
 from typing import List
 
 import pandas as pd
 from jax import numpy as jnp
 
-from data import SingleEnvData, WorkloadTrainingDataSet
+from data import SingleEnvData, WorkloadTrainingDataSet, Preprocessing
 
 # from wluncert.analysis import ModelEvaluation
 
@@ -40,33 +40,86 @@ PARTIAL_POOLING = "PARTIAL_POOLING"
 
 
 class ExperimentationModelBase(ABC, BaseEstimator):
-    def __init__(self):
+    def __init__(self, preprocessings: List[Preprocessing] = None):
         self.fitting_time = None
         self.prediction_times = []
         self.env_lbls = []
         self.feature_names = []
+        self.preprocessings = preprocessings or []
+        self.last_fitting_processing_time = 0
+        self.last_prediction_processing_time = 0
 
     def set_envs(self, envs_data: WorkloadTrainingDataSet):
         self.feature_names = envs_data.get_feature_names()
         self.env_lbls = envs_data.get_env_lables()
 
-    def fit(self, *args, **kwargs):
+    def fit(self, data: List[SingleEnvData], *args, **kwargs):
+        if self.preprocessings:
+            t_start = time.time()
+            for preprocessing in self.preprocessings:
+                data = preprocessing.fit_transform(data)
+
+            self.feature_names = data[0].get_feature_names()
+            t_cost = time.time() - t_start
+            self.last_fitting_processing_time = t_cost
+
         t_start = time.time()
-        self._fit(*args, **kwargs)
+        self._fit(data, *args, **kwargs)
         t_cost = time.time() - t_start
         self.fitting_time = t_cost
 
-    def predict(self, *args, **kwargs):
+    def predict(self, data: List[SingleEnvData], *args, **kwargs):
+        if self.preprocessings:
+            t_start = time.time()
+            for preprocessing in self.preprocessings:
+                data = preprocessing.transform(data)
+            t_cost_pre = time.time() - t_start
+            self.last_prediction_processing_time = t_cost_pre
         t_start = time.time()
-        y_pred = self._predict(*args, **kwargs)
+        y_pred = self._predict(data, *args, **kwargs)
         t_cost = time.time() - t_start
+
+        if self.preprocessings:
+            t_start = time.time()
+            for preprocessing in self.preprocessings:
+                y_pred = preprocessing.inverse_transform_pred(y_pred, data)
+            self.last_prediction_processing_time += time.time() - t_start
         self.prediction_times.append(t_cost)
         return y_pred
+
+    def _internal_data_splitting(self, data):
+        X_list = []
+        y_list = []
+        env_id_list = []
+        for single_env_data in data:
+            env_id = single_env_data.env_id
+            X = single_env_data.get_X()
+            y = single_env_data.get_y()
+            data_len = len(y)
+            new_env_id_sublist = [env_id] * data_len
+            X_list.append(X)
+            y_list.append(y)
+            env_id_list.append(new_env_id_sublist)
+
+        X_df = pd.concat(X_list)
+        X_df = X_df.astype(float)
+        X = jnp.array(X_df)
+        y = jnp.concatenate(y_list)
+        envs = jnp.array(env_id_list).ravel()
+        return X, envs, y
+
+    def _internal_data_to_list(self, envs, ys):
+        return_list = [[] for _ in np.unique(envs)]
+        for env, y in zip(envs, ys):
+            return_list[env].append(y)
+        return return_list
 
     def get_cost_dict(self):
         return {
             "pred_time_cost": self.get_total_prediction_time(),
             "fittin_time_cost": self.get_fitting_time(),
+            "preproc-fittin_time_cost": self.last_fitting_processing_time,
+            "preproc-pred-_time_cost": self.last_prediction_processing_time,
         }
 
     def get_total_prediction_time(self):
@@ -84,57 +137,10 @@ class ExperimentationModelBase(ABC, BaseEstimator):
         pass
 
 
-class StandardizingModel(ExperimentationModelBase):
-    def __init__(self):
-        super().__init__()
-        self.data_map = {}
-
-    def get_standardize_data(self, data: SingleEnvData):
-        env_id = data.env_id
-        return self.get_standardize_data_by_id(env_id)
-
-    def get_standardize_data_by_id(self, env_id):
-        env_id = int(env_id)
-        return self.data_map[env_id]
-
-    def X_envids_y_from_data_for_prediction(self, data):
-        return self._internal_data_splitting(data, override_standardizers=False)
-
-    def X_envids_y_from_data_for_fitting(self, data):
-        return self._internal_data_splitting(data, override_standardizers=True)
-
-    def _internal_data_splitting(self, data, override_standardizers=False):
-        X_list = []
-        y_list = []
-        env_id_list = []
-        for single_env_data in data:
-            env_id = single_env_data.env_id
-            if override_standardizers:
-                normalized_data = single_env_data.normalize()
-            else:
-                normalized_train_data = self.get_standardize_data_by_id(env_id)
-                normalized_data = single_env_data.normalize(normalized_train_data)
-            X = normalized_data.get_X()
-            y = normalized_data.get_y()
-            data_len = len(y)
-            new_env_id_sublist = [env_id] * data_len
-            X_list.append(X)
-            y_list.append(y)
-            env_id_list.append(new_env_id_sublist)
-            if override_standardizers:
-                self.data_map[env_id] = normalized_data
-        X_df = pd.concat(X_list)
-        X_df = X_df.astype(float)
-        X = jnp.array(X_df)
-        y = jnp.concatenate(y_list)
-        envs = jnp.array(env_id_list).ravel()
-        return X, envs, y
-
-
 class NumPyroRegressor(ExperimentationModelBase):
     def __init__(self, num_samples=500, num_warmup=1000, num_chains=3, progress_bar=False, plot=False,
-                 return_samples_by_default=False):
-        super().__init__()
+                 return_samples_by_default=False, preprocessings=None):
+        super().__init__(preprocessings)
         self.coef_ = None
         self.samples = None
         self.mcmc = None
@@ -232,12 +238,11 @@ class NumPyroRegressor(ExperimentationModelBase):
         return modes
 
 
-class MCMCMultilevelPartial(NumPyroRegressor, StandardizingModel):
+class MCMCMultilevelPartial(NumPyroRegressor):
     pooling_cat = PARTIAL_POOLING
 
     def __init__(self, *args, **kwargs):
         NumPyroRegressor.__init__(self, *args, **kwargs)
-        StandardizingModel.__init__(self)
         self.model_id = "mcmc-partial_pooling"
 
     def model(self, data, workloads, n_workloads, reference_y):
@@ -255,18 +260,21 @@ class MCMCMultilevelPartial(NumPyroRegressor, StandardizingModel):
                                               npdist.Normal(0, joint_coef_stdev), )
             hyper_coef_stddevs = numpyro.sample("influences-stddevs-hyperior",
                                                 npdist.Exponential(coefs_hyperior_expected), )
-
         with numpyro.plate("options", num_opts):
             with numpyro.plate("workloads", n_workloads):
                 rnd_influences = numpyro.sample("influences", npdist.Normal(hyper_coef_means, hyper_coef_stddevs), )
-
+        # hyper_base_means = numpyro.sample("base-mean-hyperior",
+        #                                   npdist.Normal(0, joint_coef_stdev), )
+        # hyper_base_stddevs = numpyro.sample("base-stddevs-hyperior",
+        #                                     npdist.Exponential(coefs_hyperior_expected), )
         with numpyro.plate("workloads", n_workloads):
             error_var = numpyro.sample("error", npdist.Exponential(1 / err_expectation))
+            # base = numpyro.sample("base", npdist.Normal(hyper_base_means, hyper_base_stddevs))
         # error_var = numpyro.sample("error", npdist.Exponential(1 / error_var))
 
         right_error = error_var[workloads]
         respective_influences = rnd_influences[workloads]
-        # respective_bases = bases[workloads]
+        # respective_bases = base[workloads]
         result_arr = jnp.multiply(data, respective_influences)
         result_arr = result_arr.sum(axis=1).ravel()  # + respective_bases
 
@@ -281,7 +289,7 @@ class MCMCMultilevelPartial(NumPyroRegressor, StandardizingModel):
         pass
 
     def _fit(self, data: List[SingleEnvData]):
-        X, envs, y = self.X_envids_y_from_data_for_fitting(data)
+        X, envs, y = self._internal_data_splitting(data)
         n_envs = len(data)
         reparam_config = self.get_reparam_dict()
         reparam_model = reparam(self.model, config=reparam_config)
@@ -356,19 +364,18 @@ class MCMCMultilevelPartial(NumPyroRegressor, StandardizingModel):
         return reparam_config
 
     def _predict(self, data: List[SingleEnvData]):
-        X, envs, y = self.X_envids_y_from_data_for_prediction(data)
+        X, envs, y = self._internal_data_splitting(data)
         n_workloads = len(data)
         model_args = X, envs, n_workloads
         envs_int = np.array(envs).astype(int)
         preds = self._internal_predict(model_args)
-        unstandardized_preds = []
+        # unstandardized_preds = []
         unstandardized_preds_dict = {int(env_id): [] for env_id in np.unique(envs_int)}
         for i, env_id in enumerate(envs_int):
             pred = preds[:, i]
-            normalized_train_data = self.get_standardize_data_by_id(env_id)
-            unstandardized_pred = normalized_train_data.un_normalize_y(pred).ravel()
-            unstandardized_preds.append(unstandardized_pred)
-            unstandardized_preds_dict[env_id].append(unstandardized_pred)
+            # unstandardized_preds.append(pred)
+            single_env_data = data[env_id]
+            unstandardized_preds_dict[env_id].append(pred)
         return_list = [np.array(unstandardized_preds_dict[d.env_id]) for d in data]
         return return_list
 
@@ -389,6 +396,8 @@ class MCMCMultilevelPartial(NumPyroRegressor, StandardizingModel):
         az.plot_trace(arviz_data,
                       var_names=plot_vars, legend=legend, compact=True,
                       combined=True, chain_prop={"ls": "-"})
+        if lbl is not None:
+            plt.suptitle(lbl)
         plt.tight_layout()
         print("storing plot to", plot_path)
         plt.savefig(plot_path)
@@ -407,10 +416,10 @@ class MCMCMultilevelPartial(NumPyroRegressor, StandardizingModel):
         dims = {
             "influences": [env_lbl, features_lbl],
             "influences_decentered": [env_lbl, features_lbl],
-            # "base": [env_lbl],
-            # "base_decentered": [env_lbl],
             "influences-mean-hyperior": [features_lbl],
             "influences-stddevs-hyperior": [features_lbl],
+            # "base": [env_lbl],
+            # "base_decentered": [env_lbl],
         }
         kwargs = {
             "dims": dims,
@@ -610,40 +619,6 @@ class MCMCCombinedCompletePooling(MCMCCombinedNoPooling):
         numpyro_data = az.from_numpyro(mcmc, **kwargs)
         return numpyro_data
 
-    # def plot_options(self, model_names=None, var_names=None):
-    #     var_names = var_names if var_names is not None else ["influences", ]
-    #     az_data = self.get_arviz_data()
-    #     num_plots = len(self.feature_names)
-    #     n_cols = 4
-    #     num_rows = (num_plots - 1) // n_cols + 1
-    #     num_cols = min(num_plots, n_cols)
-    #     print("n_plots", num_plots, "ncols", n_cols, "num_rows", num_rows, "num_cols", num_cols)
-    #
-    #     fig, axes = plt.subplots(num_rows, num_cols, figsize=(num_cols * 6, num_rows * 6))
-    #
-    #     for i, feature_name in enumerate(self.feature_names):
-    #         row = i // n_cols
-    #         col = i % n_cols
-    #         ax = axes[row, col] if num_rows > 1 else axes[col]
-    #         coords = {"features": [feature_name]}
-    #         az.plot_forest(az_data, combined=True,
-    #                        var_names=var_names,
-    #                        model_names=model_names,
-    #                        kind="ridgeplot",
-    #                        hdi_prob=0.999,
-    #                        ridgeplot_overlap=3,
-    #                        linewidth=3,
-    #                        coords=coords,
-    #                        ax=ax)
-    #
-    #         ax.set_xlim(-1.5, 1.5)
-    #         ax.set_title(f"Option influence {feature_name}")
-    #
-    #     plt.suptitle("Influences across Envs")
-    #     plt.tight_layout()
-    #     time.sleep(0.1)
-    #     plt.show()
-
 
 class ExtraStandardizingSimpleHyperHyper(MCMCMultilevelPartial):
     pooling_cat = PARTIAL_POOLING
@@ -722,11 +697,11 @@ def get_pairwise_lasso_reg(lasso_alpha=0.0001):
     return pipeline
 
 
-class NoPoolingEnvModel(StandardizingModel):
+class NoPoolingEnvModel(ExperimentationModelBase):
     pooling_cat = NO_POOLING
 
-    def __init__(self, model_prototype):
-        super().__init__()
+    def __init__(self, model_prototype, preprocessings=None):
+        super().__init__(preprocessings)
         self.model_prototype = model_prototype
         self.existing_models = {}
 
@@ -739,11 +714,10 @@ class NoPoolingEnvModel(StandardizingModel):
 
     def _fit(self, data: List[SingleEnvData], *args, **kwargs):
         for single_env_data in data:
-            normalized_data = single_env_data.normalize()
-            env_id = normalized_data.env_id
-            reg, _ = self.get_env_model(env_id, normalized_data)
-            X = normalized_data.get_X()
-            y = normalized_data.get_y()
+            env_id = single_env_data.env_id
+            reg, _ = self.get_env_model(env_id, single_env_data)
+            X = single_env_data.get_X()
+            y = single_env_data.get_y()
             reg.fit(X, y)
 
     def _predict(self, data: List[SingleEnvData], *args, **kwargs):
@@ -751,11 +725,9 @@ class NoPoolingEnvModel(StandardizingModel):
         for single_env_data in data:
             env_id = single_env_data.env_id
             reg, train_data = self.get_env_model(env_id)
-            normalized_predict_data = single_env_data.normalize(train_data)
-            X = normalized_predict_data.get_X()
+            X = single_env_data.get_X()
             pred = reg.predict(X)
-            un_normalized_pred = train_data.un_normalize_y(pred)
-            preds.append(un_normalized_pred)
+            preds.append(pred)
         return preds
 
     def get_pooling_cat(self):
@@ -769,32 +741,27 @@ class NoPoolingEnvModel(StandardizingModel):
         return eval
 
 
-class CompletePoolingEnvModel(StandardizingModel):
+class CompletePoolingEnvModel(ExperimentationModelBase):
     pooling_cat = COMPLETE_POOLING
 
-    def __init__(self, model_prototype):
-        super().__init__()
+    def __init__(self, model_prototype, preprocessings=None):
+        super().__init__(preprocessings)
         self.model_prototype = model_prototype
         self.pooled_model = copy.deepcopy(self.model_prototype)
 
     def _fit(self, data: List[SingleEnvData], *args, **kwargs):
-        X, envs, y = self.X_envids_y_from_data_for_fitting(data)
-        any_data: SingleEnvData = self.get_standardize_data_by_id(envs[0])
-        feature_names = any_data.get_feature_names()
+        X, envs, y = self._internal_data_splitting(data)
+        feature_names = data[0].get_feature_names()
         df = pd.DataFrame(X, columns=feature_names)
         self.pooled_model.fit(df, y)
 
     def _predict(self, data: List[SingleEnvData], *args, **kwargs):
-        preds = []
-        for single_env_data in data:
-            env_id = single_env_data.env_id
-            train_data = self.get_standardize_data_by_id(env_id)
-            normalized_predict_data = single_env_data.normalize(train_data)
-            X = normalized_predict_data.get_X()
-            pred = self.pooled_model.predict(X)
-            un_normalized_pred = train_data.un_normalize_y(pred)
-            preds.append(un_normalized_pred)
-        return preds
+        X, envs, y = self._internal_data_splitting(data)
+        feature_names = data[0].get_feature_names()
+        df = pd.DataFrame(X, columns=feature_names)
+        preds = self.pooled_model.predict(df)
+        return_y_list = self._internal_data_to_list(envs, preds)
+        return return_y_list
 
     def get_pooling_cat(self):
         return CompletePoolingEnvModel.pooling_cat
@@ -805,3 +772,40 @@ class CompletePoolingEnvModel(StandardizingModel):
         cost_df = self.get_cost_dict()
         eval.add_custom_model_dict(cost_df)
         return eval
+
+# 
+# class PolynomialMapping(StandardizingModel):
+# 
+#     def __init__(self, model_prototype):
+#         super().__init__()
+#         self.model_prototype = model_prototype
+#         self.interaction_idx_list = []
+# 
+#     def _fit(self, data: List[SingleEnvData], *args, **kwargs):
+#         X, envs, y = self.X_envids_y_from_data_for_fitting(data)
+#         any_data: SingleEnvData = self.get_standardize_data_by_id(envs[0])
+#         feature_names = any_data.get_feature_names()
+#         df = pd.DataFrame(X, columns=feature_names)
+#         self.pooled_model.fit(df, y)
+# 
+#     def _predict(self, data: List[SingleEnvData], *args, **kwargs):
+#         preds = []
+#         for single_env_data in data:
+#             env_id = single_env_data.env_id
+#             train_data = self.get_standardize_data_by_id(env_id)
+#             normalized_predict_data = single_env_data.normalize(train_data)
+#             X = normalized_predict_data.get_X()
+#             pred = self.pooled_model.predict(X)
+#             un_normalized_pred = train_data.un_normalize_y(pred)
+#             preds.append(un_normalized_pred)
+#         return preds
+# 
+#     def get_pooling_cat(self):
+#         return CompletePoolingEnvModel.pooling_cat
+# 
+#     def evaluate(self, eval):
+#         eval.add_mape()
+#         eval.add_R2()
+#         cost_df = self.get_cost_dict()
+#         eval.add_custom_model_dict(cost_df)
+#         return eval

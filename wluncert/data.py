@@ -7,19 +7,29 @@ import pandas as pd
 from pycosa import util
 import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, PolynomialFeatures
+
+from jax import numpy as jnp
+
+
+def has_multiple_columns(data):
+    if isinstance(data, pd.DataFrame):
+        return len(data.columns) > 1
+    elif isinstance(data, np.ndarray):
+        return data.ndim > 1 and data.shape[1] > 1
+    else:
+        return False
 
 
 class SingleEnvData:
     def __init__(self, df: pd.DataFrame, environment_col_name, nfps):
-        self.df_raw = df
-        self.df = copy.deepcopy(self.df_raw)
-        self.env_col_name = environment_col_name
+        self.df = copy.deepcopy(df)
         self.env_id = int(list(self.df[environment_col_name].unique())[0])
-        self.df = self.df.drop(columns=[environment_col_name])
+        self.env_col_name = environment_col_name
         self.nfps = list(nfps)
-        self.std = None
-        self.mean = None
+        self.X_df = self.get_X()
+        self.y_df = self.get_all_y()
+        # self.df = self.df.drop(columns=[environment_col_name])
 
     def get_len(self):
         return len(list(self.get_y()))
@@ -30,23 +40,47 @@ class SingleEnvData:
     def get_selected_nfp_name(self):
         return self.nfps[0]
 
-    def get_option_names(self):
-        x = self.get_X()
-        col_names = list(x.columns)
-        return col_names
-
     def get_n_options(self) -> int:
-        return len(self.get_option_names())
+        return len(self.get_feature_names())
 
     def get_X(self):
         new_cols = self.get_feature_names()
-        x = self.df[new_cols]
+        x = self.df.loc[:, new_cols]
         return x
+
+    def set_X(self, df_X):
+        # ys = self.get_y()
+        # nfp_name = self.default_to_selected_nfp()
+        # y_df = self.get_all_y() #pd.DataFrame(ys, columns=[nfp_name])
+        self.update_df(X=df_X)
+
+    def set_y(self, ys, nfp_name=None):
+        if has_multiple_columns(ys):
+            # set all_y
+            for nfp_name in ys:
+                col = ys[nfp_name]
+                self.set_y(np.array(col), nfp_name=nfp_name)
+            return
+
+        nfp_name = nfp_name or self.default_to_selected_nfp()
+        y_df = self.get_all_y()  # pd.DataFrame(ys, columns=[nfp_name])
+        y_df[nfp_name] = ys
+        # X = self.get_X()
+        self.update_df(ys=y_df)
+
+    def update_df(self, X=None, env_ids=None, ys=None):
+        X = X if X is not None else self.get_X()
+        ys = ys if ys is not None else self.get_all_y()
+        env_ids = env_ids or [self.env_id] * len(ys)
+        env_df = pd.DataFrame(env_ids, columns=[self.env_col_name])
+        X_and_envs = pd.concat([X, env_df, ys], axis=1)
+        self.df = X_and_envs
+        return X_and_envs
 
     def get_feature_names(self):
         cols = list(copy.deepcopy(self.df.columns))
         # cols.remove([self.environment_col_name, *self.nfps])
-        new_cols = [c for c in cols if c not in self.nfps]
+        new_cols = [c for c in cols if c not in self.nfps and c != self.env_col_name]
         return new_cols
 
     def get_y(self, nfp_name=None):
@@ -63,20 +97,22 @@ class SingleEnvData:
         absolute_train_size = n_train_samples_abs if n_train_samples_rel_opt_num is None else n_train_samples_rel_opt_num * n_opts
         absolute_train_size = int(absolute_train_size)
         print("Splitting train set with abs samples of", absolute_train_size)
-        df_train, df_test = train_test_split(self.df_raw, train_size=absolute_train_size, random_state=rnd)
+        df_train, df_test = train_test_split(self.df, train_size=absolute_train_size, random_state=rnd)
         train_data = SingleEnvData(df_train, self.env_col_name, self.nfps)
         test_data = SingleEnvData(df_test, self.env_col_name, self.nfps)
         return SingleEnvDataTrainTestSplit(train_data, test_data)
 
-    def normalize(self, other_normalized=None):
-        """
-        normalizes the nfp. estimates mean and std from data. if params mean and std given, uses those instead.
-        :param mean:
-        :param std:
-        :return:
-        """
-        new_data = SingleEnvDataNormalized(self.df_raw, self.env_col_name, self.nfps, other_normalized=other_normalized)
-        return new_data
+    # def normalize(self, other_normalized=None):
+    #     """
+    #     normalizes the nfp. estimates mean and std from data. if params mean and std given, uses those instead.
+    #     :param mean:
+    #     :param std:
+    #     :return:
+    #     """
+    #     new_data = SingleEnvDataNormalized(self.df_raw, self.env_col_name, self.nfps, other_normalized=other_normalized)
+    #     return new_data
+    def get_all_y(self):
+        return pd.DataFrame(np.array([self.get_y(nfp_name) for nfp_name in self.nfps]).T, columns=self.nfps)
 
 
 class SingleEnvDataNormalized(SingleEnvData):
@@ -145,6 +181,7 @@ class WorkloadTrainingDataSet:
 
     def get_df(self):
         return self.df
+
     def get_env_lables(self):
         return self.environment_lables
 
@@ -155,6 +192,7 @@ class WorkloadTrainingDataSet:
 
     def get_workloads_data(self, workload_lables=None) -> list[SingleEnvData]:
         return self.wl_data
+
     def _get_workloads_data(self, workload_lables=None) -> list[SingleEnvData]:
         if workload_lables is None:
             workload_lables = self.environment_lables
@@ -218,7 +256,7 @@ class DataLoaderDashboardData():
         sample_df = pd.read_csv(sample_path)
         measurement_df = pd.read_csv(measurements_path)
         joined_df = pd.merge(sample_df, measurement_df, on="config_id")
-        joined_df = joined_df.drop(columns=["partition", "config_id"])
+        joined_df = joined_df.drop(columns=["partition", "config_id"], errors="ignore")
         # nfps = "time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
         # "config_id,partition,workload"
         col_names_to_exclude = "partition", "config_id", self.worload_col_name
@@ -278,15 +316,30 @@ class DataAdapter(DataSource, ABC):
         return train_data
 
 
-class DataAdapterXZ(DataAdapter):
+class DashboardDatAdapter(DataAdapter):
+
+    def get_environment_col_name(self):
+        return self.environment_col_name
+
+    def get_environment_lables(self):
+        return self.environment_lables
+
+    def get_nfps(self):
+        return self.nfps
+
+    def get_transformed_df(self, cleared_sys_df, ):
+        return cleared_sys_df
+
+
+class DataAdapterXZ(DashboardDatAdapter):
     def __init__(self, data_loader: DataLoaderStandard):
         # self.environment_col_name = "workload"
         # self.nfps = ["time", "max-resident-size"]
         super().__init__(data_loader)
         # self.environment_lables = None #list(cleared_df[data_loader.worload_col_name].unique())
-        self.nfps = [nfp for nfp in data_loader.nfps if "resident" not in nfp and "mem" not in nfp]   #"time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
+        self.nfps = [nfp for nfp in data_loader.nfps if
+                     "resident" not in nfp and "mem" not in nfp]  # "time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
         # self.nfps =  [nfp for nfp in data_loader.nfps if "resident" not in nfp and "mem" not in nfp]   #"time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
-
 
     def get_environment_col_name(self):
         return self.environment_col_name
@@ -300,32 +353,39 @@ class DataAdapterXZ(DataAdapter):
     def get_transformed_df(self, cleared_sys_df, ):
         unwanted_wl = "artificl.tar"
         cleared_sys_df_wanted_wls = cleared_sys_df.loc[cleared_sys_df[self.environment_col_name] != unwanted_wl]
+        cleared_sys_df_wanted_wls.loc[:, self.environment_col_name], self.environment_lables = \
+            cleared_sys_df_wanted_wls[
+                self.environment_col_name].factorize()
+        return cleared_sys_df_wanted_wls
 
-        cleared_sys_df_wanted_wls[self.environment_col_name], self.environment_lables = cleared_sys_df_wanted_wls[
-            self.environment_col_name].factorize()
 
-        return cleared_sys_df_wanted_wls# self.get_df()
-        uiq_df = cleared_sys_df.loc[cleared_sys_df["workload"].str.contains("uiq")]
-        # uiq_df["workload-scale"] = None
-        uiq_df.loc[uiq_df["workload"] == "uiq2-4.bin", "workload-scale"] = 4
-        uiq_df.loc[uiq_df["workload"] == "uiq2-16.bin", "workload-scale"] = 16
-        uiq_df.loc[uiq_df["workload"] == "uiq-32.bin", "workload-scale"] = 32
-        uiq_df.loc[uiq_df["workload"] == "uiq2-8.bin", "workload-scale"] = 8
-        uiq_df["workload-name"] = "uiq2"
-        uiq_df["workload"] = "uiq2"
-        uiq_df[self.environment_col_name], self.environment_lables = uiq_df[
-            "workload"].factorize()
-        # changing column order to *OPTIONS, workload, workload-scale, *NFPS
-        cols = list(uiq_df.columns)
-        config_col_idx = cols.index("config_id")
-        self.nfps = cols[:config_col_idx]
-        self.nfps.append("ratio")
-        wl_cols = {"workload", "workload-scale"}
-        non_nfp_cols = set(cols) - set(self.nfps) - wl_cols
-        uiq_df = uiq_df[[*non_nfp_cols, *wl_cols, *self.nfps]]
-        # uiq_df = uiq_df[uiq_df["partition"] == cluster_partition]
-        uiq_df = uiq_df.drop(columns=["config_id", "partition"], errors='ignore')
-        return uiq_df
+class DataAdapterH2(DataAdapterXZ):
+    def __init__(self, data_loader: DataLoaderStandard):
+        # self.environment_col_name = "workload"
+        # self.nfps = ["time", "max-resident-size"]
+        super().__init__(data_loader)
+        # self.environment_lables = None #list(cleared_df[data_loader.worload_col_name].unique())
+        self.nfps = [nfp for nfp in data_loader.nfps if
+                     "resident" not in nfp and "mem" not in nfp]  # "time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
+        # self.nfps =  [nfp for nfp in data_loader.nfps if "resident" not in nfp and "mem" not in nfp]   #"time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
+
+    def get_transformed_df(self, cleared_sys_df, ):
+        unwanted_wl = "artificl.tar"
+        cleared_sys_df_wanted_wls = cleared_sys_df.loc[cleared_sys_df[self.environment_col_name] != unwanted_wl]
+        cleared_sys_df_wanted_wls.loc[:, self.environment_col_name], self.environment_lables = \
+            cleared_sys_df_wanted_wls[
+                self.environment_col_name].factorize()
+        return cleared_sys_df_wanted_wls
+
+
+class DataAdapterX264(DataAdapterXZ):
+    def __init__(self, data_loader: DataLoaderStandard):
+        super().__init__(data_loader)
+        self.nfps = [nfp for nfp in data_loader.nfps if
+                     "resident" not in nfp and "mem" not in nfp]  # "time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
+
+    def get_transformed_df(self, cleared_sys_df, ):
+        return cleared_sys_df
 
 
 class DataAdapterJump3r(DataAdapter):
@@ -347,7 +407,7 @@ class DataAdapterJump3r(DataAdapter):
     def get_transformed_df(self, cleared_sys_df, ):
         # mono_stereo_df = cleared_sys_df[cleared_sys_df["workload"].isin(["dual-channel.wav", "single-channel.wav"])]
         # mono_stereo_df["workload-scale"] = mono_stereo_df["workload"] == "dual-channel.wav"
-        cleared_sys_df[self.environment_col_name], self.environment_lables = cleared_sys_df[
+        cleared_sys_df.loc[:, self.environment_col_name], self.environment_lables = cleared_sys_df[
             "workload"].factorize()  # == "dual-channel.wav"
         # mono_stereo_df["workload-name"] = "mono-stereo"
         all_cols = cleared_sys_df.columns
@@ -360,3 +420,150 @@ class DataAdapterJump3r(DataAdapter):
 
 def remove_multicollinearity(df):
     return util.remove_multicollinearity(df)
+
+
+class Preprocessing(ABC):
+    @abstractmethod
+    def transform(self, env_data: List[SingleEnvData]):
+        pass
+
+    @abstractmethod
+    def fit_transform(self, env_data: List[SingleEnvData]):
+        pass
+
+    @abstractmethod
+    def inverse_transform_pred(self, y_pred, data):
+        pass
+
+
+class Standardizer(Preprocessing):
+    def __init__(self):
+        self.standandizer_map = {}
+
+    def transform(self, env_data: List[SingleEnvData]):
+        new_env_data_list = []
+        for single_env_data in env_data:
+            new_data = self.apply_standardizer_to_env_data(single_env_data)
+            new_env_data_list.append(new_data)
+        return new_env_data_list
+
+    def apply_standardizer_to_env_data(self, env_data: SingleEnvData):
+        env_id = int(env_data.env_id)
+        std_mapper_X, std_mappers_y = self.standandizer_map[env_id]
+        X = env_data.get_X()
+        std_X = std_mapper_X.transform(X)
+        df_X = pd.DataFrame(std_X, columns=env_data.get_feature_names())
+        y = copy.deepcopy(env_data.get_all_y())
+        for nfp_name, std_scaler in std_mappers_y.items():
+            nfp_vals = pd.DataFrame(y[nfp_name], columns=[nfp_name])
+            scaled_nfp_vals = std_scaler.transform(nfp_vals)
+            y[nfp_name] = scaled_nfp_vals
+        new_data = copy.deepcopy(env_data)
+        new_data.set_X(df_X)
+        new_data.set_y(y)
+        return new_data
+
+    def fit_transform(self, env_data: List[SingleEnvData]):
+        new_env_data_list = []
+        for single_env_data in env_data:
+            env_id = int(single_env_data.env_id)
+            X = single_env_data.get_X()
+            std_mapper_X = StandardScaler()
+            std_mapper_X.fit(X)
+            std_mappers_ys = {nfp: StandardScaler() for nfp in single_env_data.nfps}
+            for nfp_name, scaler in std_mappers_ys.items():
+                y_vals = single_env_data.get_y(nfp_name)
+                y_df = pd.DataFrame(y_vals, columns=[nfp_name])
+                scaler.fit(y_df)
+
+            self.standandizer_map[env_id] = std_mapper_X, std_mappers_ys
+            new_data = self.apply_standardizer_to_env_data(single_env_data)
+            new_env_data_list.append(new_data)
+        return new_env_data_list
+
+    def inverse_transform_pred(self, y_pred, env_data):
+        new_y_list = []
+        for ys, single_env_data in zip(y_pred, env_data):
+            env_id = single_env_data.env_id
+            std_mapper_X, std_mappers_y = self.standandizer_map[env_id]
+            nfp_name = single_env_data.get_selected_nfp_name()
+            scaler = std_mappers_y[nfp_name]
+            # y_df = pd.DataFrame(ys, columns=[nfp_name])
+            if len(np.array(ys).shape) == 1:
+                new_ys = scaler.inverse_transform(np.atleast_2d(ys)).ravel()
+            else:
+                new_ys = scaler.inverse_transform(ys)
+            new_y_list.append(new_ys)
+        return new_y_list
+
+
+class PaiwiseOptionMapper(Preprocessing):
+    def __init__(self, ):
+        self.interactions = None
+        self.poly = None
+        self.interaction_idx = []
+
+    @classmethod
+    def get_cols_that_are_not_constant_nor_identical_cols(self, df):
+        constant_cols = df.columns[df.nunique() == 1]
+        non_constant_cols = [c for c in df.columns if c not in constant_cols]
+        df_non_constant = df.loc[:, non_constant_cols]
+        identical_cols = []
+        non_identical_col_names = []
+        for col_name in non_constant_cols:
+            col = tuple(df_non_constant[col_name])
+            if col not in identical_cols:
+                identical_cols.append(col)
+                non_identical_col_names.append(col_name)
+        return non_identical_col_names
+
+    def perform_polynomial_mapping(self, df):
+        # Perform polynomial feature mapping with degree 2
+        if not self.poly:
+            self.poly = PolynomialFeatures(degree=2, include_bias=False, interaction_only=True)
+            transformed_df = self.poly.fit_transform(df)
+        else:
+            transformed_df = self.poly.transform(df)
+        df_poly = pd.DataFrame(transformed_df, columns=self.poly.get_feature_names_out(df.columns))
+        new_cols = self.get_cols_that_are_not_constant_nor_identical_cols(df_poly)
+        # Concatenate original DataFrame with polynomial features
+        df_result = df_poly.loc[:, new_cols]
+        self.store_final_interactions(df_result)
+        return df_result
+
+    def store_final_interactions(self, df):
+        self.interactions = [str(c).split(" ") for c in df.columns]
+
+    def map_with_stored_interactions(self, df_X):
+        mapped_cols = []
+        inter_names = [" ".join(inter) for inter in self.interactions]
+        for interaction in self.interactions:
+            cols = df_X[interaction]
+            interaction_activison = np.prod(cols.values, axis=1)  # pd. cols.multiply(axis=1)
+            mapped_cols.append(interaction_activison)
+        result_df = pd.DataFrame(np.array(mapped_cols).T, columns=inter_names)
+        return result_df
+
+    def transform(self, env_data: List[SingleEnvData]):
+        new_env_data_list = []
+        for single_env_data in env_data:
+            X = single_env_data.get_X()
+            mapped_X = self.map_with_stored_interactions(X)
+            new_env = copy.deepcopy(single_env_data)
+            new_env.set_X(mapped_X)
+            new_env_data_list.append(new_env)
+        return new_env_data_list
+
+    def fit_transform(self, env_data: List[SingleEnvData]):
+        new_env_data_list = []
+        all_term_names = set()
+        for single_env_data in env_data:
+            X = single_env_data.get_X()
+            new_X = self.perform_polynomial_mapping(X)
+            poly_cols = set(new_X.columns)
+            all_term_names = all_term_names.union(poly_cols)
+        transformed_with_merged_interactions = self.transform(env_data)
+        return transformed_with_merged_interactions
+
+    def inverse_transform_pred(self, y_pred, env_data):
+        return y_pred

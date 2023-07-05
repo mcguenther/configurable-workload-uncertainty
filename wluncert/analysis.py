@@ -152,8 +152,11 @@ class Analysis:
         self.err_type = "mape"
 
     def plot_errors(self, score_df=None, err_type=None):
-        print("start plotting errors")
         score_df = score_df or self.score_df
+        if len(score_df["exp_id"].unique()) < 2:
+            print("skipping errors because not enough training sets in data")
+            return
+        print("start plotting errors")
         # err_type = err_type or self.err_type
         for err_type in score_df["err_type"].unique():
             selected_error_df = score_df[score_df["err_type"] == err_type]
@@ -162,13 +165,18 @@ class Analysis:
             # plt.yscale("log")
             plt.suptitle(err_type)
             if "mape" in err_type:
+                y_min, y_max = plt.ylim()
+                new_y_max = min(y_max, 270)
                 pass
-                plt.ylim((0, 270))
+                # plt.ylim((0, new_y_max))
             elif "R2" in err_type:
-                plt.ylim((-0.5, 1.1))
+                pass
+                # plt.ylim((-0.5, 1.1))
             multitask_file = os.path.join(self.output_base_path, f"multitask-result-{err_type}.png")
             plt.savefig(multitask_file)
             plt.show()
+
+        print(self.score_df)
         print("done")
 
     def plot_metadata(self, meta_df=None):
