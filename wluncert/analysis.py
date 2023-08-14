@@ -4,6 +4,7 @@ import os.path
 import time
 from typing import List, Dict
 
+import mlflow
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -28,8 +29,6 @@ class ModelEvaluation:
         self.eval_mape_ci = False
         self.eval_R2 = False
         self.model_wise_dict = {}
-        # env_id = train_data.get_env_id()
-        # df["env_id"] = env_id
 
     def prepare_sample_modes(self):
         self.predictions_samples = self.predictions
@@ -120,13 +119,16 @@ class ModelEvaluation:
             merged_err_mape_ci = self.mape_ci(np.atleast_1d(merged_y_true).T, np.atleast_2d(merged_predictions_samples))
             overall_tup_mape_ci = err_type_mape_ci, "overall", merged_err_mape_ci
             tups.append(overall_tup_mape_ci)
+            mlflow.log_metric("mape_ci_overall", overall_tup_mape_ci)
         if self.eval_mape:
             merged_err_mape = self.mape_100(np.atleast_2d(merged_y_true).T, np.atleast_2d(merged_predictions).T)
             overall_tup_mape = err_type_mape, "overall", merged_err_mape
+            mlflow.log_metric("mape_overall", merged_err_mape)
             tups.append(overall_tup_mape)
         if self.eval_R2:
             merged_err_R2 = self.R2(merged_y_true, merged_predictions)
             overall_tup_R2 = err_type_r2, "overall", merged_err_R2
+            mlflow.log_metric("R2_overall", merged_err_R2)
             tups.append(overall_tup_R2)
         df = pd.DataFrame(tups, columns=col_names)
         return df
@@ -162,7 +164,7 @@ class Analysis:
             selected_error_df = score_df[score_df["err_type"] == err_type]
             sns.relplot(data=selected_error_df, x="exp_id", y="err",
                         hue="model", col="env", kind="line", col_wrap=4, )  # row="setting", )
-            # plt.yscale("log")
+            plt.yscale("log")
             plt.suptitle(err_type)
             if "mape" in err_type:
                 y_min, y_max = plt.ylim()

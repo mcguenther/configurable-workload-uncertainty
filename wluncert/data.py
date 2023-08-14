@@ -34,6 +34,9 @@ class SingleEnvData:
     def get_len(self):
         return len(list(self.get_y()))
 
+    def __len__(self):
+        return self.get_len()
+
     def get_env_id(self):
         return self.env_id
 
@@ -166,8 +169,9 @@ class SingleEnvDataTrainTestSplit:
         self.test_data = test_data
 
     def normalize(self):
-        self.train_data, = self.train_data.normalize()
-        self.test_data = self.test_data.normalize(other_normalized=self.train_data)
+        s = Standardizer()
+        self.train_data = s.fit_transform([self.train_data])[0]
+        self.test_data = s.transform([self.test_data])[0]
         return self.train_data, self.test_data
 
 
