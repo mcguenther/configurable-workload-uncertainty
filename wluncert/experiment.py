@@ -1,6 +1,7 @@
 import copy
 import os.path
 import random
+import time
 from typing import List, Dict
 
 import mlflow
@@ -14,14 +15,10 @@ from analysis import ModelEvaluation
 from data import SingleEnvData, Standardizer
 from utils import get_date_time_uuid
 
+EXPERIMENT_NAME = "multilevel"
+
 
 class ExperimentTask:
-    pass
-
-
-class ExperimentTransfer(ExperimentTask):
-    label = "transfer"
-
     def __init__(
         self,
         model_lbl,
@@ -30,54 +27,124 @@ class ExperimentTransfer(ExperimentTask):
         train_list,
         test_list,
         train_size: int,
+        rel_train_size=None,
         exp_id=None,
         rnd=0,
         pooling_cat=None,
     ):
-        self.loo_wise_predictions = None
         self.model = model
         self.rnd = rnd
-        self.predictions = []
+        self.loo_wise_predictions = {}
         self.model_lbl = model_lbl
         self.envs_lbl = envs_lbl
+        self.rel_train_size = rel_train_size
         self.exp_id = exp_id
         self.train_size = train_size
         self.train_list: List[SingleEnvData] = train_list
         self.test_list: List[SingleEnvData] = test_list
         self.pooling_cat = pooling_cat
 
-    def run(self, return_predictions=False):
-        loo_wise_predictions = {}
-        for loo_idx in range(len(self.train_list)):
+    def get_metadata_dict(
+        self,
+    ):
+        d = {
+            "model": self.model_lbl,
+            "budget_abs": self.train_size,
+            "rnd": self.rnd,
+            "subject_system": self.envs_lbl,
+            "exp_id": self.exp_id,
+        }
+        return d
 
-            single_env_test_data = self.test_list[loo_idx]
-            single_env_train_data = self.train_list[loo_idx]
-            abs_train_sizes = self.get_transfer_train_set_sizes(
-                single_env_train_data,
-                min_train_size_abs=3,
-                relative_steps=[0.0, 0.25, 0.5, 0.75, 1.0],
-            )
-            sub_train_sets, standardized_test_sets = self.get_transfer_train_sets(
-                single_env_train_data, single_env_test_data, abs_sizes=abs_train_sizes
-            )
-            for train_subset, standardized_test_set in zip(
-                sub_train_sets, standardized_test_sets
-            ):
-                new_loo_train_list = []
-                new_loo_test_list = []
-                for i, (single_env_train_data, single_env_test_data) in enumerate(
-                    zip(self.train_list, self.test_list)
+
+class ExperimentTransfer(ExperimentTask):
+    label = "transfer"
+
+    def __init__(self, *args, transfer_budgets=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.models = {idx: self.model for idx in range(len(self.train_list))}
+        self.transfer_budgets = transfer_budgets or [0.0, 0.25, 0.5, 0.75, 1.0]
+
+    def run(self, return_predictions=False):
+        mlflow.log_params(
+            {
+                "rnd": self.rnd,
+                "model": self.model_lbl,
+                "software-system": self.envs_lbl,
+                "exp_id": self.exp_id,
+                "train_size": self.train_size,
+                "relative_train_size": self.rel_train_size,
+                "pooling_cat": self.pooling_cat,
+                "experiment-type": self.label,
+                "transfer_budgets": self.transfer_budgets,
+            }
+        )
+
+        loo_wise_predictions = {}
+        loo_wise_standardized_test_sets = {}
+        for loo_idx in range(len(self.train_list)):
+            name = f"loo-{loo_idx}"
+            print(f"Dealing with loo index {loo_idx}")
+            with mlflow.start_run(nested=True, run_name=name):
+                mlflow.log_params(
+                    {
+                        "loo_idx": loo_idx,
+                    }
+                )
+                single_env_test_data = self.test_list[loo_idx]
+                single_env_train_data = self.train_list[loo_idx]
+                abs_train_sizes = self.get_transfer_train_set_sizes(
+                    single_env_train_data,
+                    min_train_size_abs=3,
+                    relative_steps=self.transfer_budgets,
+                )
+                sub_train_sets, standardized_test_sets = self.get_transfer_train_sets(
+                    single_env_train_data,
+                    single_env_test_data,
+                    abs_sizes=abs_train_sizes,
+                )
+
+                for train_subset, standardized_test_set in zip(
+                    sub_train_sets, standardized_test_sets
                 ):
-                    train_data = single_env_train_data if i != loo_idx else train_subset
-                    new_loo_train_list.append(train_data)
-                    # test_data = single_env_test_data if i != loo_idx else standardized_test_set
-                    # new_loo_test_list.append(test_data)
-                self.model.fit(new_loo_train_list)
-                predictions = self.model.predict([standardized_test_set])
-                loo_wise_predictions[loo_idx] = predictions
-        self.loo_wise_predictions = [
-            loo_wise_predictions[i] for i in sorted(loo_wise_predictions.keys())
-        ]
+                    loo_budget = len(train_subset)
+                    with mlflow.start_run(
+                        nested=True, run_name=f"loo-budget={loo_budget}"
+                    ):
+                        mlflow.log_params(
+                            {
+                                "loo_budget": loo_budget,
+                            }
+                        )
+
+                        new_loo_train_list = []
+                        for i, (
+                            single_env_train_data,
+                            single_env_test_data,
+                        ) in enumerate(zip(self.train_list, self.test_list)):
+                            train_data = (
+                                single_env_train_data if i != loo_idx else train_subset
+                            )
+                            new_loo_train_list.append(train_data)
+                            # test_data = single_env_test_data if i != loo_idx else standardized_test_set
+                            # new_loo_test_list.append(test_data)
+                        loo_model = self.models[loo_idx]
+                        loo_model.fit(new_loo_train_list)
+                        predictions = loo_model.predict([standardized_test_set])
+                        loo_wise_predictions[loo_idx] = predictions
+                        loo_wise_standardized_test_sets[loo_idx] = standardized_test_set
+                        self.eval_single_model(
+                            predictions,
+                            [standardized_test_set],
+                        )
+
+    def eval_single_model(self, predictions, test_list):
+        eval = ModelEvaluation(
+            predictions,
+            test_list,
+        )
+        eval = self.model.evaluate(eval)
+        df: pd.DataFrame = eval.get_scores()
 
     def get_metadata_df(
         self,
@@ -89,29 +156,8 @@ class ExperimentTransfer(ExperimentTask):
         return df
 
     def get_id(self):
-        deterministic_id = f"{self.model_lbl} on {self.envs_lbl} -{self.exp_id}-"
+        deterministic_id = f"transfer model {self.model_lbl} on {self.envs_lbl} with {self.rel_train_size}N initial train budget"
         return deterministic_id
-
-    def eval(self):
-        meta_df = self.get_metadata_df()
-        values = meta_df.iloc[0].values
-        columns = meta_df.columns
-
-        eval = ModelEvaluation(
-            self.loo_wise_predictions, self.test_list, self.train_list, meta_df
-        )
-        eval = self.model.evaluate(eval)
-        df = eval.get_scores()
-        df_annotated = df.assign(**dict(zip(columns, values)))
-        model_meta_data = eval.get_metadata()
-        model_meta_data_annotated = model_meta_data.assign(**dict(zip(columns, values)))
-        # for env_predictions, test_data, train_data in zip(self.predictions, self.test_list, self.train_list):
-        #
-        # errs_df = eval.scalar_accuracy(self.test_list, self.predictions)
-        # errs_df["model"] = self.model_lbl
-        # errs_df["setting"] = self.envs_lbl
-        # errs_df["exp_id"] = self.exp_id
-        return df_annotated, model_meta_data_annotated
 
     def get_transfer_train_set_sizes(
         self,
@@ -150,31 +196,6 @@ class ExperimentTransfer(ExperimentTask):
 class ExperimentMultitask(ExperimentTask):
     label = "multitask"
 
-    def __init__(
-        self,
-        model_lbl,
-        model,
-        envs_lbl,
-        train_list,
-        test_list,
-        train_size: int,
-        rel_train_size=None,
-        exp_id=None,
-        rnd=0,
-        pooling_cat=None,
-    ):
-        self.model = model
-        self.rnd = rnd
-        self.loo_wise_predictions = {}
-        self.model_lbl = model_lbl
-        self.envs_lbl = envs_lbl
-        self.rel_train_size = rel_train_size
-        self.exp_id = exp_id
-        self.train_size = train_size
-        self.train_list: List[SingleEnvData] = train_list
-        self.test_list: List[SingleEnvData] = test_list
-        self.pooling_cat = pooling_cat
-
     def run(self, return_predictions=False):
         mlflow.log_params(
             {
@@ -190,15 +211,7 @@ class ExperimentMultitask(ExperimentTask):
         )
         self.model.fit(self.train_list)
         self.predictions = self.model.predict(self.test_list)
-
-    def get_metadata_df(
-        self,
-    ):
-        df = pd.DataFrame(
-            [[self.model_lbl, self.train_size, self.rnd, self.envs_lbl, self.exp_id]],
-            columns=["model", "budget_abs", "rnd", "subject_system", "exp_id"],
-        )
-        return df
+        return self.eval()
 
     def get_id(self):
         deterministic_id = (
@@ -207,23 +220,19 @@ class ExperimentMultitask(ExperimentTask):
         return deterministic_id  # self.exp_id
 
     def eval(self):
-        meta_df = self.get_metadata_df()
-        # Get the values from the first row of df1
-        values = meta_df.iloc[0].values
-        # Get the column names of df1
-        columns = meta_df.columns
-
+        meta_dict = self.get_metadata_dict()
         eval = ModelEvaluation(
-            self.predictions, self.test_list, self.train_list, meta_df
+            self.predictions,
+            self.test_list,
         )
         eval = self.model.evaluate(eval)
         df: pd.DataFrame = eval.get_scores()
         scores_csv = os.path.abspath("tmp/multitask_scores.csv")
         df.to_csv(scores_csv)
         mlflow.log_artifact(scores_csv)
-        df_annotated = df.assign(**dict(zip(columns, values)))
+        df_annotated = df.assign(**meta_dict)
         model_meta_data = eval.get_metadata()
-        model_meta_data_annotated = model_meta_data.assign(**dict(zip(columns, values)))
+        model_meta_data_annotated = model_meta_data.assign(**meta_dict)
         return df_annotated, model_meta_data_annotated
 
 
@@ -252,7 +261,7 @@ class Replication:
         self.rnds = rnds if rnds is not None else [0]
         self.result = None
         self.do_transfer_task = do_transfer_task
-
+        self.parent_run_id = None
         self.experiment_name = f"uncertainty-learning-{self.replication_lbl}"
 
     def run(self):
@@ -260,7 +269,16 @@ class Replication:
         # mlflow.set_tracking_uri(
         #     "file:///home/jdorn/tmp/workload-uncertainty-learning/wluncert/mlflow/"
         # )
-        mlflow.set_experiment(experiment_name=self.experiment_name)
+        # mlflow.set_experiment(experiment_name=self.experiment_name)
+
+        mlflow.set_tracking_uri("http://172.26.92.43:5000")
+        mlflow.set_experiment(experiment_name=EXPERIMENT_NAME)
+        run_name = self.experiment_name.replace(" ", "")
+        with mlflow.start_run(run_name=run_name) as run:
+            self.parent_run_id = run.info.run_id
+            print(self.parent_run_id)
+        time.sleep(0.2)
+        mlflow.end_run()
 
         tasks = {key: [] for key in self.experiment_classes}
         transfer_tasks = []
@@ -310,10 +328,9 @@ class Replication:
         for task_type in tasks:
             random.shuffle(tasks[task_type])
             if self.n_jobs:
-                new_result = Parallel(n_jobs=self.n_jobs)(
+                Parallel(n_jobs=self.n_jobs)(
                     delayed(self.handle_task)(task) for task in tqdm(tasks[task_type])
                 )
-                results[task_type] = new_result
             else:
                 progress_bar = tqdm(
                     total=len(tasks),
@@ -321,74 +338,18 @@ class Replication:
                     unit="task",
                 )
                 for type_wise_tasks in tasks[task_type]:
-                    new_result = self.handle_task(type_wise_tasks)
-                    results[task_type].append(new_result)
+                    self.handle_task(type_wise_tasks)
                     progress_bar.update(1)
                 progress_bar.close()
-
-            eval_scores = [scores for scores, metas in results[task_type]]
-            eval_metas = [metas for scores, metas in results[task_type]]
-            merged_df_scores = pd.concat(eval_scores)
-            merged_df_scores["experiment"] = task_type.label
-            merged_df_metas = pd.concat(eval_metas)
-            merged_df_metas["experiment"] = task_type.label
-            scores_list.append(merged_df_scores)
-            metas_list.append(merged_df_metas)
-            task_id = task_type.label
-            result_dict[task_id] = {"scores": merged_df_scores, "meta": merged_df_metas}
-        # merged_scores = pd.concat(scores_list)
-        # merged_metas = pd.concat(metas_list)
-        self.result = result_dict
-        return result_dict
-
-    def store(self):
-        experiment_base_path = f"./results/{self.replication_lbl}"
-        os.makedirs(experiment_base_path, exist_ok=True)
-        for exp_type, result_dict in self.result.items():
-            merged_df_scores, merged_df_metas = (
-                result_dict["scores"],
-                result_dict["meta"],
-            )
-            print("starting storing")
-            # preview_large = merged_df_scores.sample(10_000)
-            # preview_small = merged_df_scores.head()
-            # if self.plot:
-            #     print(preview_small)
-            # preview_large.to_csv(f"{experiment_base_path}_preview.csv", index=False)
-            scores_path = os.path.join(experiment_base_path, f"scores-{exp_type}.csv")
-            experiment_idx = ["model", "env", "budget_abs", "rnd", "subject_system"]
-            # merged_df_scores["env"] = merged_df_scores["env"].map(lambda x: x if x != "overall" else -1)
-            merged_df_scores.to_csv(scores_path, index=False)
-            # merged_df_scores.to_parquet(scores_path, index=False, partition_cols=experiment_idx)
-            # dd_df.to_parquet(scores_path, partition_on=experiment_idx,
-            #                  write_index=False,
-            #                  name_function=lambda i: f"{self.replication_lbl}.part.{i}.parquet")
-
-            model_meta_path = os.path.join(
-                experiment_base_path, f"model-meta-{exp_type}.csv"
-            )
-            # merged_df_metas["env"] = merged_df_metas["env"].map(lambda x: x if x != "overall" else -1)
-            merged_df_metas.to_csv(model_meta_path, index=False)
-            # merged_df_metas.to_parquet(model_meta_path, index=False, partition_cols=experiment_idx)
-
-            # dd_df = dd.from_pandas(merged_df_metas, chunksize=20_000_000)
-            # dd_df.to_parquet(model_meta_path,
-            #                  write_index=False,
-            #                  name_function=lambda i: f"{self.replication_lbl}.part.{i}.parquet")
-
-            # merged_df.to_parquet(f"{experiment_base_path}.parquet", index=False, compression="brotli")
-        return experiment_base_path
 
     # def handle_task(self, progress_bar, task):
     def handle_task(self, task: ExperimentTask):
         mlflow.set_tracking_uri("http://172.26.92.43:5000")
-        mlflow.set_experiment(experiment_name=self.experiment_name)
+        mlflow.set_experiment(experiment_name=EXPERIMENT_NAME)
+        # mlflow.set_experiment(experiment_name=self.experiment_name)
         run_name = task.get_id()
-        with mlflow.start_run(run_name=run_name):
-            predictions = task.run()
-            # eval = ModelEvaluation()
-            # eval.scalar_accuracy_on_dask()
-            errs, meta = task.eval()
-
-            #
-        return errs, meta
+        with mlflow.start_run(
+            run_id=self.parent_run_id  # self.experiment_name.replace(" ", ""),
+        ):
+            with mlflow.start_run(run_name=run_name, nested=True):
+                task.run()

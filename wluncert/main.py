@@ -73,18 +73,19 @@ def main():
     rep_lbl = "full-run"
     if debug:
         chosen_model_lbls = []
+        # chosen_model_lbls.extend(["cpooling-lin"])
+        # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
+        chosen_model_lbls.extend(["partial-pooling-mcmc-extra"])
+        # chosen_model_lbls.extend(["no-pooling-lin"])
+        # chosen_model_lbls.extend(["no-pooling-lin-pw"])
+
         # chosen_model_lbls.extend(["cpooling-rf"])
         # chosen_model_lbls.extend(["no-pooling-rf"])
         # chosen_model_lbls.extend(["cpooling-mcmc-1model", "partial-pooling-mcmc-extra", "no-pooling-rf"])
-        # chosen_model_lbls.extend(["partial-pooling-mcmc-extra"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-extra-pw"])
         # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
-        chosen_model_lbls.extend(["no-pooling-lin"])
-        chosen_model_lbls.extend(["cpooling-lin"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-extra-pw"])
-        chosen_model_lbls.extend(["no-pooling-lin-pw"])
         # chosen_model_lbls.extend(["no-pooling-dummy"])
-        # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe-pw"])

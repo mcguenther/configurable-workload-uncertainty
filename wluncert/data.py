@@ -95,12 +95,20 @@ class SingleEnvData:
         nfp_name = nfp_name or self.get_selected_nfp_name()
         return nfp_name
 
-    def get_split(self, n_train_samples_abs=None, n_train_samples_rel_opt_num=None, rnd=0):
+    def get_split(
+        self, n_train_samples_abs=None, n_train_samples_rel_opt_num=None, rnd=0
+    ):
         n_opts = self.get_n_options()
-        absolute_train_size = n_train_samples_abs if n_train_samples_rel_opt_num is None else n_train_samples_rel_opt_num * n_opts
+        absolute_train_size = (
+            n_train_samples_abs
+            if n_train_samples_rel_opt_num is None
+            else n_train_samples_rel_opt_num * n_opts
+        )
         absolute_train_size = int(absolute_train_size)
-        print("Splitting train set with abs samples of", absolute_train_size)
-        df_train, df_test = train_test_split(self.df, train_size=absolute_train_size, random_state=rnd)
+        # print("Splitting train set with abs samples of", absolute_train_size)
+        df_train, df_test = train_test_split(
+            self.df, train_size=absolute_train_size, random_state=rnd
+        )
         train_data = SingleEnvData(df_train, self.env_col_name, self.nfps)
         test_data = SingleEnvData(df_test, self.env_col_name, self.nfps)
         return SingleEnvDataTrainTestSplit(train_data, test_data)
@@ -115,11 +123,16 @@ class SingleEnvData:
     #     new_data = SingleEnvDataNormalized(self.df_raw, self.env_col_name, self.nfps, other_normalized=other_normalized)
     #     return new_data
     def get_all_y(self):
-        return pd.DataFrame(np.array([self.get_y(nfp_name) for nfp_name in self.nfps]).T, columns=self.nfps)
+        return pd.DataFrame(
+            np.array([self.get_y(nfp_name) for nfp_name in self.nfps]).T,
+            columns=self.nfps,
+        )
 
 
 class SingleEnvDataNormalized(SingleEnvData):
-    def __init__(self, df: pd.DataFrame, environment_col_name, nfps, other_normalized=None):
+    def __init__(
+        self, df: pd.DataFrame, environment_col_name, nfps, other_normalized=None
+    ):
         super().__init__(df, environment_col_name, nfps)
         if other_normalized:
             self.scaler_X = other_normalized.scaler_X
@@ -203,7 +216,8 @@ class WorkloadTrainingDataSet:
         for wl_lable in workload_lables:
             if wl_lable not in self.environment_lables:
                 raise ValueError(
-                    f"Invalid environment lable: {wl_lable}. Available lables: {','.join(self.environment_lables)}")
+                    f"Invalid environment lable: {wl_lable}. Available lables: {','.join(self.environment_lables)}"
+                )
         workload_ids = [self.environment_lables.index(lbl) for lbl in workload_lables]
         r_df = self.get_df()
         env_datas = []
@@ -220,7 +234,9 @@ class WorkloadTrainingDataSet:
             remaining_envs = [x for x in self.environment_lables if x != env]
             loo_df = self.get_workloads_data(remaining_envs)
             env_data_list.append(loo_df)
-        target_env_data_list = [self.get_workloads_data([lbl])[0] for lbl in self.environment_lables]
+        target_env_data_list = [
+            self.get_workloads_data([lbl])[0] for lbl in self.environment_lables
+        ]
         return env_data_list, target_env_data_list
 
     def number_of_envs(self):
@@ -230,7 +246,7 @@ class WorkloadTrainingDataSet:
         return n_unique
 
 
-class DataLoaderStandard():
+class DataLoaderStandard:
     def __init__(self, base_path):
         super().__init__()
         self.base_path = base_path
@@ -246,7 +262,7 @@ class DataLoaderStandard():
         return df
 
 
-class DataLoaderDashboardData():
+class DataLoaderDashboardData:
     def __init__(self, base_path):
         super().__init__()
         self.base_path = base_path
@@ -314,14 +330,16 @@ class DataAdapter(DataSource, ABC):
         pass
 
     def get_wl_data(self) -> WorkloadTrainingDataSet:
-        train_data = WorkloadTrainingDataSet(self.transformed_df,
-                                             self.get_environment_col_name(),
-                                             self.get_environment_lables(), self.get_nfps())
+        train_data = WorkloadTrainingDataSet(
+            self.transformed_df,
+            self.get_environment_col_name(),
+            self.get_environment_lables(),
+            self.get_nfps(),
+        )
         return train_data
 
 
 class DashboardDatAdapter(DataAdapter):
-
     def get_environment_col_name(self):
         return self.environment_col_name
 
@@ -331,7 +349,10 @@ class DashboardDatAdapter(DataAdapter):
     def get_nfps(self):
         return self.nfps
 
-    def get_transformed_df(self, cleared_sys_df, ):
+    def get_transformed_df(
+        self,
+        cleared_sys_df,
+    ):
         return cleared_sys_df
 
 
@@ -341,8 +362,11 @@ class DataAdapterXZ(DashboardDatAdapter):
         # self.nfps = ["time", "max-resident-size"]
         super().__init__(data_loader)
         # self.environment_lables = None #list(cleared_df[data_loader.worload_col_name].unique())
-        self.nfps = [nfp for nfp in data_loader.nfps if
-                     "resident" not in nfp and "mem" not in nfp]  # "time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
+        self.nfps = [
+            nfp
+            for nfp in data_loader.nfps
+            if "resident" not in nfp and "mem" not in nfp
+        ]  # "time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
         # self.nfps =  [nfp for nfp in data_loader.nfps if "resident" not in nfp and "mem" not in nfp]   #"time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
 
     def get_environment_col_name(self):
@@ -354,12 +378,18 @@ class DataAdapterXZ(DashboardDatAdapter):
     def get_nfps(self):
         return self.nfps
 
-    def get_transformed_df(self, cleared_sys_df, ):
+    def get_transformed_df(
+        self,
+        cleared_sys_df,
+    ):
         unwanted_wl = "artificl.tar"
-        cleared_sys_df_wanted_wls = cleared_sys_df.loc[cleared_sys_df[self.environment_col_name] != unwanted_wl]
-        cleared_sys_df_wanted_wls.loc[:, self.environment_col_name], self.environment_lables = \
-            cleared_sys_df_wanted_wls[
-                self.environment_col_name].factorize()
+        cleared_sys_df_wanted_wls = cleared_sys_df.loc[
+            cleared_sys_df[self.environment_col_name] != unwanted_wl
+        ]
+        (
+            cleared_sys_df_wanted_wls.loc[:, self.environment_col_name],
+            self.environment_lables,
+        ) = cleared_sys_df_wanted_wls[self.environment_col_name].factorize()
         return cleared_sys_df_wanted_wls
 
 
@@ -369,26 +399,41 @@ class DataAdapterH2(DataAdapterXZ):
         # self.nfps = ["time", "max-resident-size"]
         super().__init__(data_loader)
         # self.environment_lables = None #list(cleared_df[data_loader.worload_col_name].unique())
-        self.nfps = [nfp for nfp in data_loader.nfps if
-                     "resident" not in nfp and "mem" not in nfp]  # "time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
+        self.nfps = [
+            nfp
+            for nfp in data_loader.nfps
+            if "resident" not in nfp and "mem" not in nfp
+        ]  # "time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
         # self.nfps =  [nfp for nfp in data_loader.nfps if "resident" not in nfp and "mem" not in nfp]   #"time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
 
-    def get_transformed_df(self, cleared_sys_df, ):
+    def get_transformed_df(
+        self,
+        cleared_sys_df,
+    ):
         unwanted_wl = "artificl.tar"
-        cleared_sys_df_wanted_wls = cleared_sys_df.loc[cleared_sys_df[self.environment_col_name] != unwanted_wl]
-        cleared_sys_df_wanted_wls.loc[:, self.environment_col_name], self.environment_lables = \
-            cleared_sys_df_wanted_wls[
-                self.environment_col_name].factorize()
+        cleared_sys_df_wanted_wls = cleared_sys_df.loc[
+            cleared_sys_df[self.environment_col_name] != unwanted_wl
+        ]
+        (
+            cleared_sys_df_wanted_wls.loc[:, self.environment_col_name],
+            self.environment_lables,
+        ) = cleared_sys_df_wanted_wls[self.environment_col_name].factorize()
         return cleared_sys_df_wanted_wls
 
 
 class DataAdapterX264(DataAdapterXZ):
     def __init__(self, data_loader: DataLoaderStandard):
         super().__init__(data_loader)
-        self.nfps = [nfp for nfp in data_loader.nfps if
-                     "resident" not in nfp and "mem" not in nfp]  # "time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
+        self.nfps = [
+            nfp
+            for nfp in data_loader.nfps
+            if "resident" not in nfp and "mem" not in nfp
+        ]  # "time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
 
-    def get_transformed_df(self, cleared_sys_df, ):
+    def get_transformed_df(
+        self,
+        cleared_sys_df,
+    ):
         return cleared_sys_df
 
 
@@ -408,16 +453,25 @@ class DataAdapterJump3r(DataAdapter):
     def get_nfps(self):
         return self.nfps
 
-    def get_transformed_df(self, cleared_sys_df, ):
+    def get_transformed_df(
+        self,
+        cleared_sys_df,
+    ):
         # mono_stereo_df = cleared_sys_df[cleared_sys_df["workload"].isin(["dual-channel.wav", "single-channel.wav"])]
         # mono_stereo_df["workload-scale"] = mono_stereo_df["workload"] == "dual-channel.wav"
-        cleared_sys_df.loc[:, self.environment_col_name], self.environment_lables = cleared_sys_df[
-            "workload"].factorize()  # == "dual-channel.wav"
+        (
+            cleared_sys_df.loc[:, self.environment_col_name],
+            self.environment_lables,
+        ) = cleared_sys_df[
+            "workload"
+        ].factorize()  # == "dual-channel.wav"
         # mono_stereo_df["workload-name"] = "mono-stereo"
         all_cols = cleared_sys_df.columns
         middle_cols = [self.environment_col_name, "config"]
         options = set(all_cols) - {*self.nfps, *middle_cols}
-        cleared_sys_df = cleared_sys_df[[*options, self.environment_col_name, *self.nfps]]
+        cleared_sys_df = cleared_sys_df[
+            [*options, self.environment_col_name, *self.nfps]
+        ]
         # changing column order to *OPTIONS, workload, workload-scale, *NFPS
         return cleared_sys_df
 
@@ -502,7 +556,9 @@ class Standardizer(Preprocessing):
 
 
 class PaiwiseOptionMapper(Preprocessing):
-    def __init__(self, ):
+    def __init__(
+        self,
+    ):
         self.interactions = None
         self.poly = None
         self.interaction_idx = []
@@ -524,11 +580,15 @@ class PaiwiseOptionMapper(Preprocessing):
     def perform_polynomial_mapping(self, df):
         # Perform polynomial feature mapping with degree 2
         if not self.poly:
-            self.poly = PolynomialFeatures(degree=2, include_bias=False, interaction_only=True)
+            self.poly = PolynomialFeatures(
+                degree=2, include_bias=False, interaction_only=True
+            )
             transformed_df = self.poly.fit_transform(df)
         else:
             transformed_df = self.poly.transform(df)
-        df_poly = pd.DataFrame(transformed_df, columns=self.poly.get_feature_names_out(df.columns))
+        df_poly = pd.DataFrame(
+            transformed_df, columns=self.poly.get_feature_names_out(df.columns)
+        )
         new_cols = self.get_cols_that_are_not_constant_nor_identical_cols(df_poly)
         # Concatenate original DataFrame with polynomial features
         df_result = df_poly.loc[:, new_cols]
@@ -543,7 +603,9 @@ class PaiwiseOptionMapper(Preprocessing):
         inter_names = [" ".join(inter) for inter in self.interactions]
         for interaction in self.interactions:
             cols = df_X[interaction]
-            interaction_activison = np.prod(cols.values, axis=1)  # pd. cols.multiply(axis=1)
+            interaction_activison = np.prod(
+                cols.values, axis=1
+            )  # pd. cols.multiply(axis=1)
             mapped_cols.append(interaction_activison)
         result_df = pd.DataFrame(np.array(mapped_cols).T, columns=inter_names)
         return result_df

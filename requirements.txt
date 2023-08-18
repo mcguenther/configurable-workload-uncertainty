@@ -16,3 +16,4 @@ absl-py
 pyarrow
 pycosa@git+https://github.com/smba/pycosa-toolbox@6a3632c448003347c203187dc94a15819ed46875
 mlflow
+boto3

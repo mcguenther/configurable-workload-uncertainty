@@ -105,16 +105,19 @@ class ExperimentationModelBase(ABC, BaseEstimator):
         X_df = X_df.astype(float)
         X = jnp.array(X_df)
         y = jnp.concatenate(y_list)
-        print(env_id_list)
         envs = [
             item for sublist in env_id_list for item in sublist
         ]  # jnp.array(env_id_list).ravel()
-        return X, envs, y
+        jnp_envs = jnp.array(envs)
+        return X, jnp_envs, y
 
     def _internal_data_to_list(self, envs, ys):
-        return_list = [[] for _ in np.unique(envs)]
+        # env_ys = [[] for _ in np.unique(envs)]
+        env_ys = {env_id: [] for env_id in np.unique(envs)}
+
         for env, y in zip(envs, ys):
-            return_list[env].append(y)
+            env_ys[int(env)].append(y)
+        return_list = list(env_ys.values())  # sum(env_ys.values(), [])
         return return_list
 
     def get_cost_dict(self):
@@ -327,6 +330,7 @@ class MCMCMultilevelPartial(NumPyroRegressor):
         rng_key_ = random.PRNGKey(0)
         rng_key_, rng_key = random.split(rng_key_)
         # mcmc.run(rng_key, X_agg[:, 0], X_agg[:, 1], X_agg[:, 2], given_obs=nfp_mean_agg, obs_stddev=nfp_stddev_agg)
+
         self.mcmc.run(rng_key, X, envs, n_envs, y)
         if self.plot:
             self.plot_prior_dists(X, envs, n_envs)
@@ -426,7 +430,7 @@ class MCMCMultilevelPartial(NumPyroRegressor):
         for i, env_id in enumerate(envs_int):
             pred = preds[:, i]
             # unstandardized_preds.append(pred)
-            single_env_data = data[env_id]
+            # single_env_data = data[env_id]
             unstandardized_preds_dict[env_id].append(pred)
         return_list = [np.array(unstandardized_preds_dict[d.env_id]) for d in data]
         return return_list
@@ -672,6 +676,8 @@ class MCMCPartialBaseDiff(MCMCMultilevelPartial):
 
 
 class MCMCCombinedNoPooling(MCMCMultilevelPartial):
+    pooling_cat = NO_POOLING
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.model_id = "mcmc-no-pooling-combined"
@@ -924,7 +930,7 @@ class NoPoolingEnvModel(ExperimentationModelBase):
         return preds
 
     def get_pooling_cat(self):
-        return NoPoolingEnvModel.pooling_cat
+        return self.pooling_cat
 
     def evaluate(self, eval):
         eval.add_mape()
@@ -957,7 +963,7 @@ class CompletePoolingEnvModel(ExperimentationModelBase):
         return return_y_list
 
     def get_pooling_cat(self):
-        return CompletePoolingEnvModel.pooling_cat
+        return self.pooling_cat
 
     def evaluate(self, eval):
         eval.add_mape()

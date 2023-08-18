@@ -18,13 +18,11 @@ from models import NumPyroRegressor
 
 
 class ModelEvaluation:
-    def __init__(self, predictions, test_list, train_list, meta_df, default_ci_width=0.68):
+    def __init__(self, predictions, test_list, default_ci_width=0.68):
         self.predictions_samples = None
         self.default_ci_width = default_ci_width
         self.predictions = predictions
         self.test_list = test_list
-        self.train_list = train_list
-        self.meta_df = meta_df
         self.eval_mape = False
         self.eval_mape_ci = False
         self.eval_R2 = False
@@ -32,12 +30,23 @@ class ModelEvaluation:
 
     def prepare_sample_modes(self):
         self.predictions_samples = self.predictions
-        self.predictions = [NumPyroRegressor.get_mode_from_samples(samples.T) for samples in self.predictions_samples]
+        for samples in self.predictions_samples:
+            if type(samples) == list:
+                print(samples)
+                print(self.predictions_samples)
+        self.predictions = [
+            NumPyroRegressor.get_mode_from_samples(samples.T)
+            for samples in self.predictions_samples
+        ]
 
     @classmethod
     def mape_100(cls, y_true, predictions):
-        flattened_y_true, reshaped_predictions = cls.get_clean_y_true_y_pred(predictions, y_true)
-        return mean_absolute_percentage_error(flattened_y_true, reshaped_predictions) * 100
+        flattened_y_true, reshaped_predictions = cls.get_clean_y_true_y_pred(
+            predictions, y_true
+        )
+        return (
+            mean_absolute_percentage_error(flattened_y_true, reshaped_predictions) * 100
+        )
 
     @classmethod
     def get_clean_y_true_y_pred(cls, predictions, y_true):
@@ -47,7 +56,9 @@ class ModelEvaluation:
 
     @classmethod
     def R2(cls, y_true, predictions):
-        flattened_y_true, reshaped_predictions = cls.get_clean_y_true_y_pred(predictions, y_true)
+        flattened_y_true, reshaped_predictions = cls.get_clean_y_true_y_pred(
+            predictions, y_true
+        )
         return r2_score(flattened_y_true, reshaped_predictions)
 
     def compute_ape(self, y_true, y_pred):
@@ -61,10 +72,12 @@ class ModelEvaluation:
         mask_y_true_in_lower_bound = lowers < y_true
         mask_y_true_in_upper_bound = y_true < uppers
         ape_cis = np.zeros_like(mask_y_true_in_lower_bound).astype(float)
-        ape_cis[~mask_y_true_in_lower_bound] = self.compute_ape(y_true[~mask_y_true_in_lower_bound],
-                                                                lowers[~mask_y_true_in_lower_bound])
-        ape_cis[~mask_y_true_in_upper_bound] = self.compute_ape(y_true[~mask_y_true_in_upper_bound],
-                                                                uppers[~mask_y_true_in_upper_bound])
+        ape_cis[~mask_y_true_in_lower_bound] = self.compute_ape(
+            y_true[~mask_y_true_in_lower_bound], lowers[~mask_y_true_in_lower_bound]
+        )
+        ape_cis[~mask_y_true_in_upper_bound] = self.compute_ape(
+            y_true[~mask_y_true_in_upper_bound], uppers[~mask_y_true_in_upper_bound]
+        )
         mape = ape_cis.mean()
         return mape
 
@@ -116,12 +129,17 @@ class ModelEvaluation:
                 r2 = self.R2(y_true, y_pred)
                 tups.append((err_type_r2, env_id, r2))
         if pred_has_samples and self.eval_mape_ci:
-            merged_err_mape_ci = self.mape_ci(np.atleast_1d(merged_y_true).T, np.atleast_2d(merged_predictions_samples))
+            merged_err_mape_ci = self.mape_ci(
+                np.atleast_1d(merged_y_true).T,
+                np.atleast_2d(merged_predictions_samples),
+            )
             overall_tup_mape_ci = err_type_mape_ci, "overall", merged_err_mape_ci
             tups.append(overall_tup_mape_ci)
-            mlflow.log_metric("mape_ci_overall", overall_tup_mape_ci)
+            mlflow.log_metric("mape_ci_overall", merged_err_mape_ci)
         if self.eval_mape:
-            merged_err_mape = self.mape_100(np.atleast_2d(merged_y_true).T, np.atleast_2d(merged_predictions).T)
+            merged_err_mape = self.mape_100(
+                np.atleast_2d(merged_y_true).T, np.atleast_2d(merged_predictions).T
+            )
             overall_tup_mape = err_type_mape, "overall", merged_err_mape
             mlflow.log_metric("mape_overall", merged_err_mape)
             tups.append(overall_tup_mape)
@@ -143,7 +161,9 @@ class Analysis:
         scores_file_path = os.path.join(self.results_base_path, "scores.csv")
         meta_file_path = os.path.join(self.results_base_path, "model-meta.csv")
         my_id = get_date_time_uuid()
-        self.output_base_path = os.path.join(self.results_base_path, f"{my_id}-analysis")
+        self.output_base_path = os.path.join(
+            self.results_base_path, f"{my_id}-analysis"
+        )
         os.makedirs(self.output_base_path)
         print(f"plotting to {self.output_base_path}")
 
@@ -162,8 +182,15 @@ class Analysis:
         # err_type = err_type or self.err_type
         for err_type in score_df["err_type"].unique():
             selected_error_df = score_df[score_df["err_type"] == err_type]
-            sns.relplot(data=selected_error_df, x="exp_id", y="err",
-                        hue="model", col="env", kind="line", col_wrap=4, )  # row="setting", )
+            sns.relplot(
+                data=selected_error_df,
+                x="exp_id",
+                y="err",
+                hue="model",
+                col="env",
+                kind="line",
+                col_wrap=4,
+            )  # row="setting", )
             plt.yscale("log")
             plt.suptitle(err_type)
             if "mape" in err_type:
@@ -174,7 +201,9 @@ class Analysis:
             elif "R2" in err_type:
                 pass
                 # plt.ylim((-0.5, 1.1))
-            multitask_file = os.path.join(self.output_base_path, f"multitask-result-{err_type}.png")
+            multitask_file = os.path.join(
+                self.output_base_path, f"multitask-result-{err_type}.png"
+            )
             plt.savefig(multitask_file)
             plt.show()
 
@@ -186,8 +215,16 @@ class Analysis:
         meta_df = meta_df or self.meta_df
         # ignore some metrics
         meta_df = self.get_meta_df(meta_df)
-        sns.relplot(data=meta_df, x="budget_abs", y="score",
-                    hue="model", col="metric", kind="line", col_wrap=4, facet_kws={'sharey': False, 'sharex': True})
+        sns.relplot(
+            data=meta_df,
+            x="budget_abs",
+            y="score",
+            hue="model",
+            col="metric",
+            kind="line",
+            col_wrap=4,
+            facet_kws={"sharey": False, "sharex": True},
+        )
         metadata_file = os.path.join(self.output_base_path, "metadata.png")
         plt.savefig(metadata_file)
         plt.show()
@@ -196,7 +233,9 @@ class Analysis:
 
     def get_meta_df(self, meta_df=None):
         meta_df = meta_df if meta_df is not None else self.meta_df
-        meta_df = meta_df.drop(meta_df[meta_df['metric'].isin(["warning", "scale"])].index)
+        meta_df = meta_df.drop(
+            meta_df[meta_df["metric"].isin(["warning", "scale"])].index
+        )
         meta_df["score"] = meta_df["score"].astype(float)
         return meta_df
 
@@ -206,8 +245,10 @@ class Analysis:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Script description')
-    parser.add_argument('--results', type=str, help='path to results parquet file or similar')
+    parser = argparse.ArgumentParser(description="Script description")
+    parser.add_argument(
+        "--results", type=str, help="path to results parquet file or similar"
+    )
     args = parser.parse_args()
     results_base_path = args.results
 
