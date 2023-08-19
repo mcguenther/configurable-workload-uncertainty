@@ -1,8 +1,9 @@
 import numpyro
 from analysis import Analysis
+from experiment import MLFLOW_URI
 
 # must be run before any JAX imports
-numpyro.set_host_device_count(6)
+numpyro.set_host_device_count(50)
 
 import argparse
 from experiment import Replication, ExperimentTransfer, ExperimentMultitask
@@ -34,7 +35,7 @@ from models import (
 
 
 def main():
-    mlflow.set_tracking_uri("http://172.26.92.43:5000")
+    mlflow.set_tracking_uri(MLFLOW_URI)
 
     experiment_class_labels = {
         "multitask": ExperimentMultitask,
@@ -73,19 +74,19 @@ def main():
     rep_lbl = "full-run"
     if debug:
         chosen_model_lbls = []
-        # chosen_model_lbls.extend(["cpooling-lin"])
-        # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
+        chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
         chosen_model_lbls.extend(["partial-pooling-mcmc-extra"])
-        # chosen_model_lbls.extend(["no-pooling-lin"])
-        # chosen_model_lbls.extend(["no-pooling-lin-pw"])
+        chosen_model_lbls.extend(["partial-pooling-mcmc-extra-pw"])
+        chosen_model_lbls.extend(["no-pooling-lin"])
+        chosen_model_lbls.extend(["no-pooling-lin-pw"])
+        chosen_model_lbls.extend(["cpooling-lin"])
+        chosen_model_lbls.extend(["cpooling-rf"])
+        chosen_model_lbls.extend(["no-pooling-rf"])
+        chosen_model_lbls.extend(["no-pooling-dummy"])
 
-        # chosen_model_lbls.extend(["cpooling-rf"])
-        # chosen_model_lbls.extend(["no-pooling-rf"])
         # chosen_model_lbls.extend(["cpooling-mcmc-1model", "partial-pooling-mcmc-extra", "no-pooling-rf"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-extra-pw"])
         # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
-        # chosen_model_lbls.extend(["partial-pooling-mcmc-extra-pw"])
-        # chosen_model_lbls.extend(["no-pooling-dummy"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe-pw"])
@@ -97,7 +98,7 @@ def main():
         train_sizes = 0.25, 0.5, 0.625, 0.75, 1.0, 1.25, 1.5, 1.75, 2, 3
         rnds = list([11, 222, 333, 44, 55, 666, 77, 888, 99])
         train_sizes = 0.5, 0.75, 1.0, 1.5, 2, 5, 10
-        rnds = (1,)  # 55, 635, 65, 84
+        rnds = (1, 2, 3)  # 55, 635, 65, 84
         # rnds = list(range(3))
 
         rep_lbl = "debug-1modelvs partial"

@@ -2,6 +2,9 @@ import warnings
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 import time
+import numpyro
+
+numpyro.set_host_device_count(50)
 
 from matplotlib import pyplot as plt
 from sklearn.base import BaseEstimator

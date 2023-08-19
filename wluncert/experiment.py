@@ -15,7 +15,10 @@ from analysis import ModelEvaluation
 from data import SingleEnvData, Standardizer
 from utils import get_date_time_uuid
 
-EXPERIMENT_NAME = "multilevel"
+
+# MLFLOW_URI = "http://172.26.92.43:5000"
+MLFLOW_URI = "https://mlflow.sws.informatik.uni-leipzig.de"
+EXPERIMENT_NAME = "jdorn-multilevel"
 
 
 class ExperimentTask:
@@ -271,7 +274,7 @@ class Replication:
         # )
         # mlflow.set_experiment(experiment_name=self.experiment_name)
 
-        mlflow.set_tracking_uri("http://172.26.92.43:5000")
+        mlflow.set_tracking_uri(MLFLOW_URI)
         mlflow.set_experiment(experiment_name=EXPERIMENT_NAME)
         run_name = self.experiment_name.replace(" ", "")
         with mlflow.start_run(run_name=run_name) as run:
@@ -327,6 +330,7 @@ class Replication:
         result_dict = {}
         for task_type in tasks:
             random.shuffle(tasks[task_type])
+            print(f"Planning {self.n_jobs} jobs")
             if self.n_jobs:
                 Parallel(n_jobs=self.n_jobs)(
                     delayed(self.handle_task)(task) for task in tqdm(tasks[task_type])
@@ -344,7 +348,7 @@ class Replication:
 
     # def handle_task(self, progress_bar, task):
     def handle_task(self, task: ExperimentTask):
-        mlflow.set_tracking_uri("http://172.26.92.43:5000")
+        mlflow.set_tracking_uri(MLFLOW_URI)
         mlflow.set_experiment(experiment_name=EXPERIMENT_NAME)
         # mlflow.set_experiment(experiment_name=self.experiment_name)
         run_name = task.get_id()
