@@ -105,7 +105,9 @@ class SingleEnvData:
             else n_train_samples_rel_opt_num * n_opts
         )
         absolute_train_size = int(absolute_train_size)
+        absolute_train_size = max(absolute_train_size, 1)
         # print("Splitting train set with abs samples of", absolute_train_size)
+        # absolute_train_size = min(absolute_train_size, len(self.df))
         df_train, df_test = train_test_split(
             self.df, train_size=absolute_train_size, random_state=rnd
         )
@@ -241,9 +243,14 @@ class WorkloadTrainingDataSet:
 
     def number_of_envs(self):
         df = self.get_df()
-        env_col = df.columns[-1]
+        env_col = self.get_env_col_name()
         n_unique = df[env_col].unique()
         return n_unique
+
+    def get_env_col_name(self):
+        df = self.get_df()
+        env_col = df.columns[-1]
+        return env_col
 
 
 class DataLoaderStandard:
@@ -294,8 +301,8 @@ class DataLoaderDashboardData:
 
 
 class DataSource(ABC):
-    def __init__(self):
-        self.environment_col_name = "workload"
+    def __init__(self, environment_col_name=None):
+        self.environment_col_name = environment_col_name or "workload"
 
     @abstractmethod
     def get_wl_data(self) -> WorkloadTrainingDataSet:
@@ -303,8 +310,8 @@ class DataSource(ABC):
 
 
 class DataAdapter(DataSource, ABC):
-    def __init__(self, data_loader: DataLoaderStandard):
-        super().__init__()
+    def __init__(self, data_loader: DataLoaderStandard, environment_col_name=None):
+        super().__init__(environment_col_name=environment_col_name)
         self.data_source = data_loader
         cleared_df = self.data_source.get_df()
         self.transformed_df = self.get_transformed_df(cleared_df)
@@ -328,6 +335,13 @@ class DataAdapter(DataSource, ABC):
     @abstractmethod
     def get_transformed_df(self, cleared_df):
         pass
+
+    def factorize_workload_col(self, df):
+        (
+            df.loc[:, self.environment_col_name],
+            self.environment_lables,
+        ) = df[self.environment_col_name].factorize()
+        return df
 
     def get_wl_data(self) -> WorkloadTrainingDataSet:
         train_data = WorkloadTrainingDataSet(
@@ -414,10 +428,7 @@ class DataAdapterH2(DataAdapterXZ):
         cleared_sys_df_wanted_wls = cleared_sys_df.loc[
             cleared_sys_df[self.environment_col_name] != unwanted_wl
         ]
-        (
-            cleared_sys_df_wanted_wls.loc[:, self.environment_col_name],
-            self.environment_lables,
-        ) = cleared_sys_df_wanted_wls[self.environment_col_name].factorize()
+        self.factorize_workload_col(cleared_sys_df_wanted_wls)
         return cleared_sys_df_wanted_wls
 
 
@@ -428,13 +439,33 @@ class DataAdapterX264(DataAdapterXZ):
             nfp
             for nfp in data_loader.nfps
             if "resident" not in nfp and "mem" not in nfp
-        ]  # "time,kernel-time,user-time,max-resident-set-size,avg-resident-set-size,avg-mem-use".split(",")
+        ]
 
     def get_transformed_df(
         self,
         cleared_sys_df,
     ):
-        return cleared_sys_df
+        return self.factorize_workload_col(cleared_sys_df)
+
+
+class DataAdapterBatik(DataAdapterX264):
+    pass
+
+
+class DataAdapterDConvert(DataAdapterX264):
+    pass
+
+
+class DataAdapterKanzi(DataAdapterX264):
+    pass
+
+
+class DataAdapterLrzip(DataAdapterX264):
+    pass
+
+
+class DataAdapterZ3(DataAdapterX264):
+    pass
 
 
 class DataAdapterJump3r(DataAdapter):
@@ -457,17 +488,74 @@ class DataAdapterJump3r(DataAdapter):
         self,
         cleared_sys_df,
     ):
-        # mono_stereo_df = cleared_sys_df[cleared_sys_df["workload"].isin(["dual-channel.wav", "single-channel.wav"])]
-        # mono_stereo_df["workload-scale"] = mono_stereo_df["workload"] == "dual-channel.wav"
-        (
-            cleared_sys_df.loc[:, self.environment_col_name],
-            self.environment_lables,
-        ) = cleared_sys_df[
-            "workload"
-        ].factorize()  # == "dual-channel.wav"
-        # mono_stereo_df["workload-name"] = "mono-stereo"
+        cleared_sys_df = self.factorize_workload_col(cleared_sys_df)
         all_cols = cleared_sys_df.columns
         middle_cols = [self.environment_col_name, "config"]
+        options = set(all_cols) - {*self.nfps, *middle_cols}
+        cleared_sys_df = cleared_sys_df[
+            [*options, self.environment_col_name, *self.nfps]
+        ]
+        # changing column order to *OPTIONS, workload, workload-scale, *NFPS
+        return cleared_sys_df
+
+
+class DataAdapterFastdownward(DataAdapter):
+    def __init__(self, data_loader: DataLoaderStandard):
+        self.environment_col_name = "revisions"
+        self.nfps = ["intperformance", "intmemory", "extperformance", "extmemory"]
+        self.environment_lables = None
+        super().__init__(data_loader, self.environment_col_name)
+
+    def get_environment_col_name(self):
+        return self.environment_col_name
+
+    def get_environment_lables(self):
+        return list(self.environment_lables)
+
+    def get_nfps(self):
+        return self.nfps
+
+    def get_transformed_df(
+        self,
+        cleared_sys_df,
+    ):
+        cleared_sys_df = self.factorize_workload_col(cleared_sys_df)
+        cleared_sys_df = cleared_sys_df.drop(
+            columns=["random"],
+        )
+        all_cols = cleared_sys_df.columns
+        middle_cols = [self.environment_col_name]
+        options = set(all_cols) - {*self.nfps, *middle_cols}
+        cleared_sys_df = cleared_sys_df[
+            [*options, self.environment_col_name, *self.nfps]
+        ]
+        # changing column order to *OPTIONS, workload, workload-scale, *NFPS
+        return cleared_sys_df
+
+
+class DataAdapterArtificial(DataAdapter):
+    def __init__(self, data_loader: DataLoaderStandard):
+        self.environment_col_name = "workload"
+        self.nfps = ["time"]
+        self.environment_lables = None
+        super().__init__(data_loader, self.environment_col_name)
+
+    def get_environment_col_name(self):
+        return self.environment_col_name
+
+    def get_environment_lables(self):
+        return list(self.environment_lables)
+
+    def get_nfps(self):
+        return self.nfps
+
+    def get_transformed_df(
+        self,
+        cleared_sys_df,
+    ):
+        cleared_sys_df = self.factorize_workload_col(cleared_sys_df)
+        all_cols = cleared_sys_df.columns
+        middle_cols = [self.environment_col_name]
         options = set(all_cols) - {*self.nfps, *middle_cols}
         cleared_sys_df = cleared_sys_df[
             [*options, self.environment_col_name, *self.nfps]
@@ -607,6 +695,8 @@ class PaiwiseOptionMapper(Preprocessing):
                 cols.values, axis=1
             )  # pd. cols.multiply(axis=1)
             mapped_cols.append(interaction_activison)
+        if not mapped_cols:
+            return None
         result_df = pd.DataFrame(np.array(mapped_cols).T, columns=inter_names)
         return result_df
 

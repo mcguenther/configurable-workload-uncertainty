@@ -18,10 +18,13 @@ from models import NumPyroRegressor
 from dataclasses import dataclass
 
 RESULTS_EXP = "jdorn-multilevel-eval"
+plt.rcParams["figure.dpi"] = 300
+plt.rcParams["savefig.dpi"] = 300
 
 
 class Evaluation:
-    def __init__(self, parent_run, tracking_url):
+    def __init__(self, parent_run, tracking_url, experiment_name=None):
+        self.experiment_name = experiment_name or "jdorn-tmp"
         self.parent_run = parent_run
         self.tracking_url = tracking_url
         self.csv_path = "mlfloweval-last.csv"
@@ -29,7 +32,7 @@ class Evaluation:
         mlflow.set_tracking_uri(self.tracking_url)
         self.idx = ["model", "env_id", "budget_abs", "rnd", "subject_system"]
         experiment = mlflow.search_experiments(
-            filter_string="attribute.name = 'jdorn-multilevel'"
+            filter_string=("attribute.name = '%s'" % self.experiment_name)
         )[0]
         experiment_id = experiment.experiment_id
         self.experiment_id = experiment_id
@@ -44,21 +47,35 @@ class Evaluation:
         df = pd.read_csv(self.csv_path)
         print(df)
 
-        large_init_train_df = df.loc[df["params.relative_train_size"] == 5.0]
+        # large_init_train_df = df.loc[df["params.relative_train_size"] == 5.0]
         metric = "metrics.mape_overall"
 
         sns.relplot(
-            data=large_init_train_df,
+            data=df,
             x="params.loo_budget_rel",
             y=metric,
             col="params.loo_idx",
             kind="line",
             hue="params.model",
             style="params.pooling_cat",
-            row="params.software-system",  # col_wrap=4,
+            row="params.relative_train_size",  # col_wrap=4,
         )
-        plt.yscale("log")
-        fig = plt.gcf()
+
+        # plt.yscale("log")
+
+        # Get the current y-axis limits
+        current_ylim = plt.ylim()
+        # Check if the current ymax is above 200
+        # if current_ylim[1] > 200:
+        #     # Set the ymax to 200
+        #     plt.ylim(current_ylim[0], 200)
+        plt.ylim(0, 10)
+        plt.tight_layout()
+        fig_pdf_path = "lastplot-errors.pdf"
+        plt.savefig(fig_pdf_path)
+
+        mlflow.log_figure(plt.gcf(), "errors.png")
+        mlflow.log_artifact(fig_pdf_path)
         plt.show()
 
         # score_df = score_df or self.score_df
@@ -212,6 +229,7 @@ class Evaluation:
             data_df.to_csv(csv_path)
             mlflow.log_artifact(csv_path)
             # mlflow.log_table(data_df, csv_path)
+            self.plot_errors()
 
     def get_sub_runs(self, parent_run_id):
         return mlflow.search_runs(
@@ -230,14 +248,17 @@ def main():
     args = parser.parse_args()
     parent_run_id = args.run
     skip_aggregation = args.skip_aggregation
-    # tracking_url = "http://172.26.92.43:5000"
-    tracking_url = "https://mlflow.sws.informatik.uni-leipzig.de"
+    tracking_url = "http://185.209.223.218:5000"
+    # tracking_url = "https://mlflow.sws.informatik.uni-leipzig.de"
     # parent_run_id = "d843627702ba4dadb2d7e08e99da8720"
-    parent_run_id = "224331c23c4b4575ba5dfc3ef2d30c04"
-    al = Evaluation(parent_run_id, tracking_url)
+    # parent_run_id = "224331c23c4b4575ba5dfc3ef2d30c04"
+    # parent_run_id = "355878e4baae4be3a2792978e5643026" # jump3r
+    parent_run_id = "15466c9a7134451b89e49fbc0244d29e"
+    from experiment import EXPERIMENT_NAME
+
+    al = Evaluation(parent_run_id, tracking_url, experiment_name=EXPERIMENT_NAME)
     if not skip_aggregation:
         al.run()
-    al.plot_errors()
 
 
 if __name__ == "__main__":

@@ -148,6 +148,7 @@ class ModelEvaluation:
             overall_tup_R2 = err_type_r2, "overall", merged_err_R2
             mlflow.log_metric("R2_overall", merged_err_R2)
             tups.append(overall_tup_R2)
+        mlflow.log_metrics(self.model_wise_dict)
         df = pd.DataFrame(tups, columns=col_names)
         return df
 

@@ -2,11 +2,14 @@ import copy
 import os.path
 import random
 import time
+import uuid
 from typing import List, Dict
 
 import mlflow
 from mlflow.models import ModelSignature, infer_signature
 import numpy as np
+from mlflow.utils.rest_utils import http_request
+
 import pandas as pd
 from joblib import Parallel, delayed
 from tqdm import tqdm
@@ -14,11 +17,38 @@ from tqdm import tqdm
 from analysis import ModelEvaluation
 from data import SingleEnvData, Standardizer
 from utils import get_date_time_uuid
-
+import mlfloweval
 
 # MLFLOW_URI = "http://172.26.92.43:5000"
-MLFLOW_URI = "https://mlflow.sws.informatik.uni-leipzig.de"
-EXPERIMENT_NAME = "jdorn-multilevel"
+MLFLOW_URI = "http://185.209.223.218:5000"
+# MLFLOW_URI = "https://mlflow.sws.informatik.uni-leipzig.de"
+# EXPERIMENT_NAME = "jdorn-multilevel"
+EXPERIMENT_NAME = "jdorn-artif"
+
+
+SLEEP_TIME_BASE_MAX = 0.17
+
+
+def get_rnd_sleep_time():
+    return np.random.uniform(0.15, SLEEP_TIME_BASE_MAX)
+
+
+def mlflow_log_params(*args, **kwargs):
+    time.sleep(get_rnd_sleep_time())
+    # print("logging parameters")
+    return mlflow.log_params(*args, **kwargs)
+
+
+def mlflow_log_metrics(*args, **kwargs):
+    time.sleep(get_rnd_sleep_time())
+    # print("logging metrics")
+    return mlflow.log_metrics(*args, **kwargs)
+
+
+def mlflow_log_dict(*args, **kwargs):
+    time.sleep(get_rnd_sleep_time())
+    # print("logging dict")
+    return mlflow.log_dict(*args, **kwargs)
 
 
 class ExperimentTask:
@@ -46,17 +76,28 @@ class ExperimentTask:
         self.train_list: List[SingleEnvData] = train_list
         self.test_list: List[SingleEnvData] = test_list
         self.pooling_cat = pooling_cat
+        self.training_features = self.train_list[0].get_feature_names()
 
     def get_metadata_dict(
         self,
     ):
         d = {
-            "model": self.model_lbl,
-            "budget_abs": self.train_size,
             "rnd": self.rnd,
+            "model": self.model_lbl,
+            "train_size": self.train_size,
             "subject_system": self.envs_lbl,
+            "relative_train_size": self.rel_train_size,
+            "pooling_cat": self.pooling_cat,
             "exp_id": self.exp_id,
+            "n_train_features": len(self.training_features)
+            # "training-feature-names": self.training_features,
         }
+        # artifact_file = f"tmp/feature_names-{uuid.uuid4()}.txt"
+        artifact_file = f"feature_names.txt"
+        mlflow_log_dict(
+            {"training_feature_names": self.training_features}, artifact_file
+        )
+        # os.remove(artifact_file)
         return d
 
 
@@ -66,22 +107,16 @@ class ExperimentTransfer(ExperimentTask):
     def __init__(self, *args, transfer_budgets=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.models = {idx: self.model for idx in range(len(self.train_list))}
-        self.transfer_budgets = transfer_budgets or [0.0, 0.25, 0.5, 0.75, 1.0]
+        self.transfer_budgets = transfer_budgets or [0.0, 0.125, 0.25, 0.375, 0.5, 1.0]
 
     def run(self, return_predictions=False):
-        mlflow.log_params(
-            {
-                "rnd": self.rnd,
-                "model": self.model_lbl,
-                "software-system": self.envs_lbl,
-                "exp_id": self.exp_id,
-                "train_size": self.train_size,
-                "relative_train_size": self.rel_train_size,
-                "pooling_cat": self.pooling_cat,
-                "experiment-type": self.label,
-                "transfer_budgets": self.transfer_budgets,
-            }
-        )
+        base_log_dict = self.get_metadata_dict()
+        log_dict = {
+            "experiment-type": self.label,
+            "transfer_budgets": self.transfer_budgets,
+        }
+        log_dict = {**log_dict, **base_log_dict}
+        mlflow_log_params(log_dict)
 
         loo_wise_predictions = {}
         loo_wise_standardized_test_sets = {}
@@ -89,7 +124,7 @@ class ExperimentTransfer(ExperimentTask):
             name = f"loo-{loo_idx}"
             print(f"Dealing with loo index {loo_idx}")
             with mlflow.start_run(nested=True, run_name=name):
-                mlflow.log_params(
+                mlflow_log_params(
                     {
                         "loo_idx": loo_idx,
                     }
@@ -114,12 +149,11 @@ class ExperimentTransfer(ExperimentTask):
                     with mlflow.start_run(
                         nested=True, run_name=f"loo-budget={loo_budget}"
                     ):
-                        mlflow.log_params(
+                        mlflow_log_params(
                             {
                                 "loo_budget": loo_budget,
                             }
                         )
-
                         new_loo_train_list = []
                         for i, (
                             single_env_train_data,
@@ -230,9 +264,11 @@ class ExperimentMultitask(ExperimentTask):
         )
         eval = self.model.evaluate(eval)
         df: pd.DataFrame = eval.get_scores()
-        scores_csv = os.path.abspath("tmp/multitask_scores.csv")
+        scores_csv = os.path.abspath(f"tmp/multitask_scores-{self.get_id()}.csv")
         df.to_csv(scores_csv)
+
         mlflow.log_artifact(scores_csv)
+        os.remove(scores_csv)
         df_annotated = df.assign(**meta_dict)
         model_meta_data = eval.get_metadata()
         model_meta_data_annotated = model_meta_data.assign(**meta_dict)
@@ -253,6 +289,7 @@ class Replication:
         do_transfer_task=False,
     ):
         self.replication_lbl = get_date_time_uuid() + "-" + replication_lbl
+        self.progress_bar = None
         self.plot = plot
         self.models = models
         self.experiment_classes = experiment_classes
@@ -331,20 +368,23 @@ class Replication:
         for task_type in tasks:
             random.shuffle(tasks[task_type])
             print(f"Planning {self.n_jobs} jobs")
+
             if self.n_jobs:
                 Parallel(n_jobs=self.n_jobs)(
                     delayed(self.handle_task)(task) for task in tqdm(tasks[task_type])
                 )
             else:
-                progress_bar = tqdm(
+                self.progress_bar = tqdm(
                     total=len(tasks),
                     desc="Running multitask learning tasks",
                     unit="task",
                 )
                 for type_wise_tasks in tasks[task_type]:
                     self.handle_task(type_wise_tasks)
-                    progress_bar.update(1)
-                progress_bar.close()
+                    # self.progress_bar.update(1)
+                self.progress_bar.close()
+        print(self.parent_run_id)
+        return self.parent_run_id
 
     # def handle_task(self, progress_bar, task):
     def handle_task(self, task: ExperimentTask):

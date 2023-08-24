@@ -1,4 +1,6 @@
+import os
 import warnings
+import uuid
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 import time
@@ -36,10 +38,21 @@ from jax import numpy as jnp
 from data import SingleEnvData, WorkloadTrainingDataSet, Preprocessing
 
 # from wluncert.analysis import ModelEvaluation
+import mlflow
 
 NO_POOLING = "NO_POOLING"
 COMPLETE_POOLING = "COMPLETE_POOLING"
 PARTIAL_POOLING = "PARTIAL_POOLING"
+
+
+def mlflow_log_artifact(*args, **kwargs):
+    time.sleep(0.5)
+    return mlflow.log_artifact(*args, **kwargs)
+
+
+def mlflow_log_text(*args, **kwargs):
+    time.sleep(0.5)
+    return mlflow.log_text(*args, **kwargs)
 
 
 class ExperimentationModelBase(ABC, BaseEstimator):
@@ -236,7 +249,7 @@ class NumPyroRegressor(ExperimentationModelBase):
             "se": loo_data.se,
             "elpd_loo": loo_data.elpd_loo,
             "warning": loo_data.warning,
-            "scale": loo_data.scale,
+            "log_scale": loo_data.scale == "log",
         }
         return d
 
@@ -249,6 +262,7 @@ class NumPyroRegressor(ExperimentationModelBase):
         bayesian_metrics = self.get_bayes_eval_dict()
         model_metrics = {**bayesian_metrics, **cost_df}
         eval.add_custom_model_dict(model_metrics)
+        # self.persist_arviz_data()
         return eval
 
     @classmethod
@@ -256,6 +270,13 @@ class NumPyroRegressor(ExperimentationModelBase):
         hdi = az.hdi(samples, hdi_prob=0.1)
         modes = np.mean(hdi, axis=1)
         return modes
+
+    def persist_arviz_data(self):
+        az_data = self.get_arviz_data()
+        tmp_file = f"tmp/arviz_data-{uuid.uuid4()}.netcdf"
+        az_data.to_netcdf(filename=tmp_file)
+        mlflow_log_artifact(tmp_file)
+        os.remove(tmp_file)
 
 
 class MCMCMultilevelPartial(NumPyroRegressor):
@@ -974,41 +995,3 @@ class CompletePoolingEnvModel(ExperimentationModelBase):
         cost_df = self.get_cost_dict()
         eval.add_custom_model_dict(cost_df)
         return eval
-
-
-#
-# class PolynomialMapping(StandardizingModel):
-#
-#     def __init__(self, model_prototype):
-#         super().__init__()
-#         self.model_prototype = model_prototype
-#         self.interaction_idx_list = []
-#
-#     def _fit(self, data: List[SingleEnvData], *args, **kwargs):
-#         X, envs, y = self.X_envids_y_from_data_for_fitting(data)
-#         any_data: SingleEnvData = self.get_standardize_data_by_id(envs[0])
-#         feature_names = any_data.get_feature_names()
-#         df = pd.DataFrame(X, columns=feature_names)
-#         self.pooled_model.fit(df, y)
-#
-#     def _predict(self, data: List[SingleEnvData], *args, **kwargs):
-#         preds = []
-#         for single_env_data in data:
-#             env_id = single_env_data.env_id
-#             train_data = self.get_standardize_data_by_id(env_id)
-#             normalized_predict_data = single_env_data.normalize(train_data)
-#             X = normalized_predict_data.get_X()
-#             pred = self.pooled_model.predict(X)
-#             un_normalized_pred = train_data.un_normalize_y(pred)
-#             preds.append(un_normalized_pred)
-#         return preds
-#
-#     def get_pooling_cat(self):
-#         return CompletePoolingEnvModel.pooling_cat
-#
-#     def evaluate(self, eval):
-#         eval.add_mape()
-#         eval.add_R2()
-#         cost_df = self.get_cost_dict()
-#         eval.add_custom_model_dict(cost_df)
-#         return eval

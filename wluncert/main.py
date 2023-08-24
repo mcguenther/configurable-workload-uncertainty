@@ -1,12 +1,17 @@
 import numpyro
 from analysis import Analysis
-from experiment import MLFLOW_URI
 
 # must be run before any JAX imports
 numpyro.set_host_device_count(50)
 
 import argparse
-from experiment import Replication, ExperimentTransfer, ExperimentMultitask
+from experiment import (
+    Replication,
+    ExperimentTransfer,
+    ExperimentMultitask,
+    MLFLOW_URI,
+    EXPERIMENT_NAME,
+)
 import os
 import mlflow
 from data import (
@@ -18,6 +23,14 @@ from data import (
     DataAdapterH2,
     Standardizer,
     PaiwiseOptionMapper,
+    DataAdapterX264,
+    DataAdapterBatik,
+    DataAdapterDConvert,
+    DataAdapterKanzi,
+    DataAdapterZ3,
+    DataAdapterLrzip,
+    DataAdapterFastdownward,
+    DataAdapterArtificial,
 )
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression, Lasso
@@ -32,6 +45,7 @@ from models import (
     MCMCCombinedCompletePooling,
     MCMCPartialBaseDiff,
 )
+import mlfloweval
 
 
 def main():
@@ -66,19 +80,20 @@ def main():
     print("pwd", os.getcwd())
     data_providers = get_all_datasets()
 
-    selected_data = ("jump3r",)
-    data_providers = {key: data_providers[key] for key in selected_data}
+    selected_data = ("fastdownward",)
 
     models = get_all_models(debug, n_jobs, plot)
 
     rep_lbl = "full-run"
     if debug:
         chosen_model_lbls = []
+        chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
         chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
         chosen_model_lbls.extend(["partial-pooling-mcmc-extra"])
-        chosen_model_lbls.extend(["partial-pooling-mcmc-extra-pw"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-extra-pw"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-pw"])
         chosen_model_lbls.extend(["no-pooling-lin"])
-        chosen_model_lbls.extend(["no-pooling-lin-pw"])
+        # chosen_model_lbls.extend(["no-pooling-lin-pw"])
         chosen_model_lbls.extend(["cpooling-lin"])
         chosen_model_lbls.extend(["cpooling-rf"])
         chosen_model_lbls.extend(["no-pooling-rf"])
@@ -88,7 +103,7 @@ def main():
         # chosen_model_lbls.extend(["partial-pooling-mcmc-extra-pw"])
         # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
-        # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe"])
+        chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe-pw"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-diff"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-extra", "partial-pooling-mcmc-robust", "partial-pooling-mcmc-horseshoe"])
@@ -97,9 +112,38 @@ def main():
         train_sizes = (0.75,)
         train_sizes = 0.25, 0.5, 0.625, 0.75, 1.0, 1.25, 1.5, 1.75, 2, 3
         rnds = list([11, 222, 333, 44, 55, 666, 77, 888, 99])
-        train_sizes = 0.5, 0.75, 1.0, 1.5, 2, 5, 10
-        rnds = (1, 2, 3)  # 55, 635, 65, 84
+        # number of pairwise interactions > 10N for N>=22
+        train_sizes = (
+            0.5,
+            1.0,
+            2,
+            5,
+        )
+        # train_sizes = 0.5, 1.0, 5, 10
+        rnds = (
+            1,
+            2,
+            3,
+            4,
+            5,
+        )  # 55, 635, 65, 84
         # rnds = list(range(3))
+
+        selected_data = (
+            # "jump3r",
+            # "H2",
+            # "xz",
+            # "x264",
+            # "batik",
+            # "dconvert",
+            # "kanzi",
+            # "lrzip",
+            # "z3",
+            # "fastdownward",
+            "artificial",
+        )
+
+        #
 
         rep_lbl = "debug-1modelvs partial"
     else:
@@ -128,6 +172,8 @@ def main():
         )  # list(range(3))
     print("created models")
 
+    data_providers = {key: data_providers[key] for key in selected_data}
+
     rep = Replication(
         chosen_experiments,
         models,
@@ -137,7 +183,7 @@ def main():
         n_jobs=n_jobs,
         replication_lbl=rep_lbl,
     )
-    rep.run()
+    run_id = rep.run()
     # if do_store:
     #     experiment_base_path = rep.store()
     #     al = Analysis(experiment_base_path)
@@ -146,6 +192,9 @@ def main():
     # eval = Evaluation()
     print("DONE with experiment.")
     print("running analysis")
+    eval = mlfloweval.Evaluation(run_id, MLFLOW_URI, EXPERIMENT_NAME)
+    eval.run()
+    eval.plot_errors()
 
 
 def get_all_models(debug, n_jobs, plot):
@@ -275,12 +324,6 @@ def get_all_models(debug, n_jobs, plot):
 
 def get_all_datasets(train_data_folder=None):
     print("loading data")
-
-    # path_x264 = "./training-data/dashboard-resources/x264/"
-    # x264_data_raw = DataLoaderDashboardData(path_x264)
-    # data_x264 = DataAdapterX264(x264_data_raw)
-    # h2_wl_data: WorkloadTrainingDataSet = data_x264.get_wl_data()
-
     train_data_folder = train_data_folder or "./training-data"
     path_h2 = os.path.join(train_data_folder, "dashboard-resources/h2/")
     h2_data_raw = DataLoaderDashboardData(path_h2)
@@ -297,10 +340,60 @@ def get_all_datasets(train_data_folder=None):
     data_jump3r = DataAdapterJump3r(jump3r_data_raw)
     wl_data: WorkloadTrainingDataSet = data_jump3r.get_wl_data()
 
+    path_x264 = os.path.join(train_data_folder, "dashboard-resources/x264/")
+    x264_data_raw = DataLoaderDashboardData(path_x264)
+    data_x264 = DataAdapterX264(x264_data_raw)
+    x264_wl_data: WorkloadTrainingDataSet = data_x264.get_wl_data()
+
+    path_batik = os.path.join(train_data_folder, "dashboard-resources/batik/")
+    batik_data_raw = DataLoaderDashboardData(path_batik)
+    data_batik = DataAdapterBatik(batik_data_raw)
+    batik_wl_data: WorkloadTrainingDataSet = data_batik.get_wl_data()
+
+    path_dconvert = os.path.join(train_data_folder, "dashboard-resources/dconvert/")
+    dconvert_data_raw = DataLoaderDashboardData(path_dconvert)
+    data_dconvert = DataAdapterDConvert(dconvert_data_raw)
+    dconvert_wl_data: WorkloadTrainingDataSet = data_dconvert.get_wl_data()
+
+    path_kanzi = os.path.join(train_data_folder, "dashboard-resources/kanzi/")
+    kanzi_data_raw = DataLoaderDashboardData(path_kanzi)
+    data_kanzi = DataAdapterKanzi(kanzi_data_raw)
+    kanzi_wl_data: WorkloadTrainingDataSet = data_kanzi.get_wl_data()
+
+    path_lrzip = os.path.join(train_data_folder, "dashboard-resources/lrzip/")
+    lrzip_data_raw = DataLoaderDashboardData(path_lrzip)
+    data_lrzip = DataAdapterLrzip(lrzip_data_raw)
+    lrzip_wl_data: WorkloadTrainingDataSet = data_lrzip.get_wl_data()
+
+    path_z3 = os.path.join(train_data_folder, "dashboard-resources/z3/")
+    z3_data_raw = DataLoaderDashboardData(path_z3)
+    data_z3 = DataAdapterZ3(z3_data_raw)
+    z3_wl_data: WorkloadTrainingDataSet = data_z3.get_wl_data()
+
+    path_fastdownward = os.path.join(
+        train_data_folder, "FastDownward_Data/measurements.csv"
+    )
+    fastdownward_data_raw = DataLoaderStandard(path_fastdownward)
+    data_fastdownward = DataAdapterFastdownward(fastdownward_data_raw)
+    fastdownward_wl_data: WorkloadTrainingDataSet = data_fastdownward.get_wl_data()
+
+    path_artificial = os.path.join(train_data_folder, "artificial/artificial_data.csv")
+    artificial_data_raw = DataLoaderStandard(path_artificial)
+    data_artificial = DataAdapterArtificial(artificial_data_raw)
+    artificial_wl_data: WorkloadTrainingDataSet = data_artificial.get_wl_data()
+
     data_providers = {
         "jump3r": wl_data,
         "H2": h2_wl_data,
         "xz": xz_wl_data,
+        "x264": x264_wl_data,
+        "batik": batik_wl_data,
+        "dconvert": dconvert_wl_data,
+        "kanzi": kanzi_wl_data,
+        "lrzip": lrzip_wl_data,
+        "z3": z3_wl_data,
+        "fastdownward": fastdownward_wl_data,
+        "artificial": artificial_wl_data,
     }
     print("loaded data")
     return data_providers
