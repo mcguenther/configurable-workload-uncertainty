@@ -28,7 +28,8 @@ class Evaluation:
         self.parent_run = parent_run
         self.tracking_url = tracking_url
         self.csv_path = "mlfloweval-last.csv"
-
+        self.run_id = None
+        self.run_name = "aggregation"
         mlflow.set_tracking_uri(self.tracking_url)
         self.idx = ["model", "env_id", "budget_abs", "rnd", "subject_system"]
         experiment = mlflow.search_experiments(
@@ -36,6 +37,7 @@ class Evaluation:
         )[0]
         experiment_id = experiment.experiment_id
         self.experiment_id = experiment_id
+        mlflow.set_experiment(experiment_name=RESULTS_EXP)
         #
         # self.output_base_path = os.path.join(
         #     self.results_base_path, f"{my_id}-analysis"
@@ -44,96 +46,130 @@ class Evaluation:
         # print(f"plotting to {self.output_base_path}")
 
     def plot_errors(self):
-        df = pd.read_csv(self.csv_path)
-        print(df)
+        kwargs = {"run_id": self.run_id} if self.run_id else {"run_name": self.run_name}
+        with mlflow.start_run(
+            **kwargs  # self.experiment_name.replace(" ", ""),
+        ) as run:
+            df = pd.read_csv(self.csv_path)
+            mlflow.log_artifact(self.csv_path)
+            print(df)
 
-        # large_init_train_df = df.loc[df["params.relative_train_size"] == 5.0]
-        metric = "metrics.mape_overall"
+            print("Plotting relative transfer budget")
+            metric = "metrics.mape_overall"
+            sns.relplot(
+                data=df,
+                x="params.loo_budget",
+                # x="params.loo_budget_rel",
+                y=metric,
+                col="params.loo_idx",
+                kind="line",
+                hue="params.model",
+                style="params.pooling_cat",
+                row="params.relative_train_size",  # col_wrap=4,
+            )
+            plt.suptitle("Absolute training size")
+            # plt.yscale("log")
+            # Get the current y-axis limits
+            current_ylim = plt.ylim()
+            # Check if the current ymax is above 200
+            # if current_ylim[1] > 200:
+            #     # Set the ymax to 200
+            #     plt.ylim(current_ylim[0], 200)
+            plt.ylim(0, 12)
+            self.log_figure("abs-training-size")
 
-        sns.relplot(
-            data=df,
-            x="params.loo_budget_rel",
-            y=metric,
-            col="params.loo_idx",
-            kind="line",
-            hue="params.model",
-            style="params.pooling_cat",
-            row="params.relative_train_size",  # col_wrap=4,
-        )
+            print("Plotting absolute transfer budget")
+            metric = "metrics.mape_overall"
+            sns.relplot(
+                data=df,
+                x="params.loo_budget_rel",
+                # x="params.loo_budget_rel",
+                y=metric,
+                col="params.loo_idx",
+                kind="line",
+                hue="params.model",
+                style="params.pooling_cat",
+                row="params.relative_train_size",  # col_wrap=4,
+            )
+            plt.suptitle("Relative training size ")
+            # plt.yscale("log")
+            # Get the current y-axis limits
+            current_ylim = plt.ylim()
+            # Check if the current ymax is above 200
+            # if current_ylim[1] > 200:
+            #     # Set the ymax to 200
+            #     plt.ylim(current_ylim[0], 200)
+            plt.ylim(0, 12)
+            self.log_figure("rel-training-size")
 
-        # plt.yscale("log")
+            # score_df = score_df or self.score_df
+            # if len(score_df["exp_id"].unique()) < 2:
+            #     print("skipping errors because not enough training sets in data")
+            #     return
+            # print("start plotting errors")
+            # # err_type = err_type or self.err_type
+            # for err_type in score_df["err_type"].unique():
+            #     selected_error_df = score_df[score_df["err_type"] == err_type]
+            #     sns.relplot(
+            #         data=selected_error_df,
+            #         x="exp_id",
+            #         y="err",
+            #         hue="model",
+            #         col="env",
+            #         kind="line",
+            #         col_wrap=4,
+            #     )  # row="setting", )
+            #     plt.yscale("log")
+            #     plt.suptitle(err_type)
+            #     if "mape" in err_type:
+            #         y_min, y_max = plt.ylim()
+            #         new_y_max = min(y_max, 270)
+            #         pass
+            #         # plt.ylim((0, new_y_max))
+            #     elif "R2" in err_type:
+            #         pass
+            #         # plt.ylim((-0.5, 1.1))
+            #     multitask_file = os.path.join(
+            #         self.output_base_path, f"multitask-result-{err_type}.png"
+            #     )
+            #     plt.savefig(multitask_file)
+            #     plt.show()
+            #
+            # print(self.score_df)
+            # print("done")
 
-        # Get the current y-axis limits
-        current_ylim = plt.ylim()
-        # Check if the current ymax is above 200
-        # if current_ylim[1] > 200:
-        #     # Set the ymax to 200
-        #     plt.ylim(current_ylim[0], 200)
-        plt.ylim(0, 10)
+    def log_figure(self, lbl):
         plt.tight_layout()
-        fig_pdf_path = "lastplot-errors.pdf"
+        fig_pdf_path = f"lastplot-errors-{lbl}.pdf"
         plt.savefig(fig_pdf_path)
-
-        mlflow.log_figure(plt.gcf(), "errors.png")
+        mlflow.log_figure(plt.gcf(), f"errors-{lbl}.png")
         mlflow.log_artifact(fig_pdf_path)
-        plt.show()
-
-        # score_df = score_df or self.score_df
-        # if len(score_df["exp_id"].unique()) < 2:
-        #     print("skipping errors because not enough training sets in data")
-        #     return
-        # print("start plotting errors")
-        # # err_type = err_type or self.err_type
-        # for err_type in score_df["err_type"].unique():
-        #     selected_error_df = score_df[score_df["err_type"] == err_type]
-        #     sns.relplot(
-        #         data=selected_error_df,
-        #         x="exp_id",
-        #         y="err",
-        #         hue="model",
-        #         col="env",
-        #         kind="line",
-        #         col_wrap=4,
-        #     )  # row="setting", )
-        #     plt.yscale("log")
-        #     plt.suptitle(err_type)
-        #     if "mape" in err_type:
-        #         y_min, y_max = plt.ylim()
-        #         new_y_max = min(y_max, 270)
-        #         pass
-        #         # plt.ylim((0, new_y_max))
-        #     elif "R2" in err_type:
-        #         pass
-        #         # plt.ylim((-0.5, 1.1))
-        #     multitask_file = os.path.join(
-        #         self.output_base_path, f"multitask-result-{err_type}.png"
-        #     )
-        #     plt.savefig(multitask_file)
-        #     plt.show()
-        #
-        # print(self.score_df)
-        # print("done")
+        # plt.show()
 
     def plot_metadata(self, meta_df=None):
-        print("start plotting metadata")
-        meta_df = meta_df or self.meta_df
-        # ignore some metrics
-        meta_df = self.get_meta_df(meta_df)
-        sns.relplot(
-            data=meta_df,
-            x="budget_abs",
-            y="score",
-            hue="model",
-            col="metric",
-            kind="line",
-            col_wrap=4,
-            facet_kws={"sharey": False, "sharex": True},
-        )
-        metadata_file = os.path.join(self.output_base_path, "metadata.png")
-        plt.savefig(metadata_file)
-        plt.show()
-        # time.sleep(0.1)
-        print("done")
+        kwargs = {"run_id": self.run_id} if self.run_id else {"run_name": self.run_name}
+        with mlflow.start_run(
+            **kwargs  # self.experiment_name.replace(" ", ""),
+        ) as run:
+            print("start plotting metadata")
+            meta_df = meta_df or self.meta_df
+            # ignore some metrics
+            meta_df = self.get_meta_df(meta_df)
+            sns.relplot(
+                data=meta_df,
+                x="budget_abs",
+                y="score",
+                hue="model",
+                col="metric",
+                kind="line",
+                col_wrap=4,
+                facet_kws={"sharey": False, "sharex": True},
+            )
+            metadata_file = os.path.join(self.output_base_path, "metadata.png")
+            plt.savefig(metadata_file)
+            plt.show()
+            # time.sleep(0.1)
+            print("done")
 
     def get_meta_df(self, meta_df=None):
         meta_df = meta_df if meta_df is not None else self.meta_df
@@ -160,8 +196,10 @@ class Evaluation:
         mlflow.set_experiment(experiment_name=RESULTS_EXP)
         # mlflow.set_experiment(experiment_name=self.experiment_name)
         with mlflow.start_run(
-            run_name="aggregation"  # self.experiment_name.replace(" ", ""),
-        ):
+            run_name=self.run_name  # self.experiment_name.replace(" ", ""),
+        ) as run:
+
+            self.run_id = run.info.run_id
             # Initialize an empty list to store the data
             data_list = []
 
@@ -210,8 +248,8 @@ class Evaluation:
                     budget_map = {
                         absolute: relative
                         for absolute, relative in zip(
-                            sorted(unique_abs_budgets),
-                            sorted(relative_transfer_budgets),
+                            sorted(unique_abs_budgets, reverse=True),
+                            sorted(relative_transfer_budgets, reverse=True),
                         )
                     }
                     for run_dict in env_data:
@@ -253,12 +291,14 @@ def main():
     # parent_run_id = "d843627702ba4dadb2d7e08e99da8720"
     # parent_run_id = "224331c23c4b4575ba5dfc3ef2d30c04"
     # parent_run_id = "355878e4baae4be3a2792978e5643026" # jump3r
-    parent_run_id = "15466c9a7134451b89e49fbc0244d29e"
+    parent_run_id = "aa128508ab854fb3b3b1b91dd02b5337"
     from experiment import EXPERIMENT_NAME
 
     al = Evaluation(parent_run_id, tracking_url, experiment_name=EXPERIMENT_NAME)
     if not skip_aggregation:
         al.run()
+    else:
+        al.plot_errors()
 
 
 if __name__ == "__main__":

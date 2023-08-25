@@ -206,10 +206,13 @@ class ExperimentTransfer(ExperimentTask):
         absolute_steps = [int(i * max_size) for i in relative_steps]
         final_sizes = []
         for step in absolute_steps:
-            if step < min_train_size_abs and min_train_size_abs not in final_sizes:
-                final_sizes.append(min_train_size_abs)
+            if step < min_train_size_abs:  # and min_train_size_abs not in final_sizes:
+                size_candidate = min_train_size_abs
             else:
-                final_sizes.append(step)
+                size_candidate = step
+
+            if size_candidate not in final_sizes:
+                final_sizes.append(size_candidate)
         return final_sizes
 
     def get_transfer_train_sets(
