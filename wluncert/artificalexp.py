@@ -2,13 +2,14 @@ import itertools
 
 import numpy as np
 import pandas as pd
-
+import platform
 import main as mainfile
 import seaborn as sns
 from matplotlib import pyplot as plt
 import argparse
 from scipy import stats as sps
 import main as main_experiment_module
+import mlflow
 
 
 class Generator:
@@ -17,7 +18,7 @@ class Generator:
         self.n_reps = n_reps
 
     def generate(self):
-        n_workloads = 6
+        n_workloads = 3
         n_options = 8
         combinations = list(
             itertools.product(list(range(n_workloads)), *([[0, 1]] * n_options))
@@ -50,6 +51,9 @@ class Generator:
                 "time",
             ],
         )
+        df["workload"] = df["workload"].replace(
+            {0: "CCTV.mp4", 1: "vlog.mp4", 2: "movie.mkv"}
+        )
         print(df)
         df.to_csv("training-data/artificial/artificial_data.csv", index=False)
         return df
@@ -70,12 +74,9 @@ class Generator:
     ):
         # fmt: off
         influences_list = [
-            [10, 5, 5, 1, 1, 0, 2, 0, 0, ],
-            [10, 5, 5, 1, 1, 0, 2, 0, 0, ],
-            [20, 5, 5, 2, 2, 2, 4, 0, 0, ],
-            [20, 5, 5, 2, 2, 2, 4, 0, 0, ],
-            [30, 5, 5, 3, 3, 2, 0, 0, 0, ],
-            [30, 5, 5, 3, 3, 2, 0, 0, 0, ],
+            [10, 5, 5, 3, 3, 0, 3, 0, 0, ],
+            [20, 5, 5, 6, 6, 5, 6, 0, 0, ],
+            [30, 5, 5, 9, 9, 5, 0, 0, 0, ],
         ]
         # fmt: on
         infl = np.array(influences_list)
@@ -96,6 +97,9 @@ class Generator:
 
 
 def main():
+    hostname = platform.node()
+    print("Hostname:", hostname)
+
     parser = argparse.ArgumentParser()
     # Add your other arguments here
 
@@ -104,6 +108,8 @@ def main():
         action="store_true",
         help="Unleash the generator!",
     )
+
+
 
     args = parser.parse_args()
     do_generate = args.generate

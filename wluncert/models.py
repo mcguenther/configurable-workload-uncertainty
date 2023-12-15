@@ -241,28 +241,73 @@ class NumPyroRegressor(ExperimentationModelBase):
         ci_s = az.hdi(samples, hdi_prob=ci)
         return ci_s
 
-    def get_bayes_eval_dict(self):
+    def get_bayes_eval_dict(self, test_list):
         arviz_data = self.get_arviz_data()
-        loo_data = az.loo(arviz_data)
+
+        ######## debugging
+        arviz_data_posterior = arviz_data.posterior.copy()
+        arviz_data_posterior = arviz_data_posterior.where(
+            ~np.isinf(arviz_data_posterior), np.nan
+        )
+        arviz_data.posterior = arviz_data_posterior
+
+        #### debugging
+
+        loo_data = az.loo(arviz_data, pointwise=False)
+        log_likelihood = self.get_log_likelihood(test_list)
+        post_vars = arviz_data.posterior.variables.mapping
+        n_features = len(post_vars["features"])
+        rv_names = [
+            k
+            for k in post_vars
+            if ("influences" in k or "base" in k) and "decentered" not in k
+        ]
+        n_rvs = 0
+        for rv_name in rv_names:
+            shape = post_vars[rv_name].shape
+            if len(shape) == 3:  # dim 0: chains, dim 1: samples, dim 2: features
+                n_rvs += shape[-1]
+            elif len(shape) == 4:
+                # dim 0: chains, dim 1: samples, dim 2: env, dim 3 features
+                n_envs = shape[-2]
+                n_features = shape[-1]
+                n_rvs += n_envs * n_features
+            else:
+                raise AssertionError(
+                    "Error in computing RV count for RV with name",
+                    rv_name,
+                    "and shape",
+                    shape,
+                )
+        original_total_influences = len(self.env_lbls) * len(self.feature_names)
+        p_loo = loo_data.p_loo
+        relative_DOF = p_loo / original_total_influences
+        DOF_shrinkage = (original_total_influences - p_loo) / original_total_influences
         d = {
-            "p_loo": loo_data.p_loo,
-            "se": loo_data.se,
+            "p_loo": p_loo,
+            "n_rvs": n_rvs,
+            "original_total_influences": original_total_influences,
+            "relative_DOF": relative_DOF,
+            "DOF_shrinkage": DOF_shrinkage,
+            "elpd_loo_se": loo_data.se,
             "elpd_loo": loo_data.elpd_loo,
+            "test_set_log-likelihood": log_likelihood,
             "warning": loo_data.warning,
             "log_scale": loo_data.scale == "log",
         }
         return d
 
-    def evaluate(self, eval):
+    def evaluate(self, eval, test_list=None):
         eval.prepare_sample_modes()
         eval.add_mape()
         eval.add_R2()
         eval.add_mape_CI()
         cost_df = self.get_cost_dict()
-        bayesian_metrics = self.get_bayes_eval_dict()
+        test_list = test_list or eval.get_test_list()
+        bayesian_metrics = self.get_bayes_eval_dict(test_list)
         model_metrics = {**bayesian_metrics, **cost_df}
         eval.add_custom_model_dict(model_metrics)
-        # self.persist_arviz_data()
+        self.persist_arviz_data()
         return eval
 
     @classmethod
@@ -277,6 +322,60 @@ class NumPyroRegressor(ExperimentationModelBase):
         az_data.to_netcdf(filename=tmp_file)
         mlflow_log_artifact(tmp_file)
         os.remove(tmp_file)
+
+    def get_log_likelihood(self, test_list):
+        merged_y_true = []
+
+        # i = 0
+        # test_set = test_list[0]
+        # y_obs = test_set.get_y()
+        # X = self.get_jnp_array(
+        #     test_set.get_X()
+        # )  # jnp.array(test_set.get_X().to_numpy())
+        # merged_y_true.extend(y_obs)
+        # # model = self.condition(y_obs)
+        # model = self.model
+        # env_id = test_set.env_id
+        # id_list = [env_id] * len(y_obs)
+        # n_envs = 1
+        # ll = numpyro.infer.util.log_likelihood(
+        #     self.model,
+        #     self.mcmc.get_samples(),
+        #     X,
+        #     jnp.array(id_list),
+        #     n_envs,
+        #     jnp.array(y_obs),
+        #     batch_ndims=1,
+        # )
+        # # TODO clearify why we get a ll per posterior sample; in theory, all the posterior samples should form a distribution which yields the ll; so, wy have to average? Is this merely a technical detail?
+        # # thought: we plug each sample into the model and compute the ll given the prior shapes.
+        # ll_mean = float(ll["observations"].mean())
+
+        lls_for_wl = []
+        for test_set in test_list:
+            y_obs = test_set.get_y()
+            X = self.get_jnp_array(test_set.get_X())
+            merged_y_true.extend(y_obs)
+            model = self.model
+            env_id = test_set.env_id
+            id_list = [env_id] * len(y_obs)
+            n_envs = 1
+            ll_samples = numpyro.infer.util.log_likelihood(
+                model,
+                self.mcmc.get_samples(),
+                X,
+                jnp.array(id_list),
+                n_envs,
+                jnp.array(y_obs),
+                batch_ndims=1,
+            )
+            lls = ll_samples["observations"].mean(axis=0)
+            lls_for_wl.extend(lls)
+        # total likelihood of the data given the model and posteriors
+        # TODO arviz, following vehtari et al, report the mean so we do the same for now to avoid vanishing probs
+        ll = np.mean(lls_for_wl)
+
+        return ll
 
 
 class MCMCMultilevelPartial(NumPyroRegressor):
@@ -585,7 +684,7 @@ class MCMCPartialHorseshoe(MCMCMultilevelPartial):
     def model(self, data, workloads, n_workloads, reference_y):
         err_expectation = 0.3
         num_opts = data.shape[1]
-        coefs_expected_stddev_change_over_envs = 0.2  # 0.2 /2  # 0.5
+        coefs_expected_stddev_change_over_envs = 0.2
         coefs_hyperior_expected = 1 / coefs_expected_stddev_change_over_envs
 
         tau = numpyro.sample("tau", npdist.HalfCauchy(scale=1))

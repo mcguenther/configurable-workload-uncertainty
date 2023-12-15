@@ -4,6 +4,7 @@ import copy
 from typing import List
 
 import pandas as pd
+import scipy
 from pycosa import util
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -198,7 +199,16 @@ class WorkloadTrainingDataSet:
         self.nfps = list(nfps)
         self.wl_data = self._get_workloads_data()
 
-    def get_df(self):
+    def get_df(self, use_env_lbls=False):
+        df = self.df
+        if use_env_lbls:
+            replacement_dict = {
+                index: label for index, label in enumerate(self.environment_lables)
+            }
+            # Replace values in the 'column_name' column using the dictionary
+            df[self.environment_col_name] = df[self.environment_col_name].replace(
+                replacement_dict
+            )
         return self.df
 
     def get_env_lables(self):
@@ -534,8 +544,9 @@ class DataAdapterFastdownward(DataAdapter):
 
 
 class DataAdapterArtificial(DataAdapter):
-    def __init__(self, data_loader: DataLoaderStandard):
+    def __init__(self, data_loader: DataLoaderStandard, noise_std=None):
         self.environment_col_name = "workload"
+        self.noise_std = noise_std
         self.nfps = ["time"]
         self.environment_lables = None
         super().__init__(data_loader, self.environment_col_name)
@@ -560,8 +571,18 @@ class DataAdapterArtificial(DataAdapter):
         cleared_sys_df = cleared_sys_df[
             [*options, self.environment_col_name, *self.nfps]
         ]
+        cleared_sys_df = self.apply_noise(cleared_sys_df)
         # changing column order to *OPTIONS, workload, workload-scale, *NFPS
         return cleared_sys_df
+
+    def apply_noise(self, cleared_sys_df):
+        noisy_df = cleared_sys_df
+        if self.noise_std:
+            for nfp in self.get_nfps():
+                noisy_df[nfp] = noisy_df[nfp] + np.random.normal(
+                    0, self.noise_std, len(noisy_df)
+                )
+        return noisy_df
 
 
 def remove_multicollinearity(df):

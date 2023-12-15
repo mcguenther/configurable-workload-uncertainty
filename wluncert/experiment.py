@@ -13,14 +13,17 @@ from mlflow.utils.rest_utils import http_request
 import pandas as pd
 from joblib import Parallel, delayed
 from tqdm import tqdm
-
+import uuid
 from analysis import ModelEvaluation
 from data import SingleEnvData, Standardizer
 from utils import get_date_time_uuid
 import mlfloweval
 
 # MLFLOW_URI = "http://172.26.92.43:5000"
-MLFLOW_URI = "http://185.209.223.218:5000"
+MLFLOW_USR = "jdorn"
+MLFLOW_PWD = "xWpS3yWZKxDXEqFWBVh5SAz84d9uyEWuFEUs"
+MLFLOW_URI = f"https://{MLFLOW_USR}:{MLFLOW_PWD}@mlflow.server.jdbrothers.de"
+# jdorn:xWpS3yWZKxDXEqFWBVh5SAz84d9uyEWuFEUs@mlflow.server.jdbrothers.de
 # MLFLOW_URI = "https://mlflow.sws.informatik.uni-leipzig.de"
 # EXPERIMENT_NAME = "jdorn-multilevel"
 EXPERIMENT_NAME = "jdorn-artif"
@@ -111,9 +114,10 @@ class ExperimentTransfer(ExperimentTask):
 
     def run(self, return_predictions=False):
         base_log_dict = self.get_metadata_dict()
+        type_dict = {"experiment-type": self.label}
         log_dict = {
-            "experiment-type": self.label,
             "transfer_budgets": self.transfer_budgets,
+            **type_dict,
         }
         log_dict = {**log_dict, **base_log_dict}
         mlflow_log_params(log_dict)
@@ -127,6 +131,7 @@ class ExperimentTransfer(ExperimentTask):
                 mlflow_log_params(
                     {
                         "loo_idx": loo_idx,
+                        **type_dict,
                     }
                 )
                 single_env_test_data = self.test_list[loo_idx]
@@ -152,6 +157,7 @@ class ExperimentTransfer(ExperimentTask):
                         mlflow_log_params(
                             {
                                 "loo_budget": loo_budget,
+                                **type_dict,
                             }
                         )
                         new_loo_train_list = []
@@ -267,9 +273,13 @@ class ExperimentMultitask(ExperimentTask):
         )
         eval = self.model.evaluate(eval)
         df: pd.DataFrame = eval.get_scores()
-        scores_csv = os.path.abspath(f"tmp/multitask_scores-{self.get_id()}.csv")
-        df.to_csv(scores_csv)
 
+        myuuid = uuid.uuid4()
+
+        scores_csv = os.path.abspath(
+            f"tmp/multitask_scores-{self.get_id()}-{str(myuuid)}.csv"
+        )
+        df.to_csv(scores_csv)
         mlflow.log_artifact(scores_csv)
         os.remove(scores_csv)
         df_annotated = df.assign(**meta_dict)

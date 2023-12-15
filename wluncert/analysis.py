@@ -28,6 +28,9 @@ class ModelEvaluation:
         self.eval_R2 = False
         self.model_wise_dict = {}
 
+    def get_test_list(self):
+        return self.test_list
+
     def prepare_sample_modes(self):
         self.predictions_samples = self.predictions
         for samples in self.predictions_samples:

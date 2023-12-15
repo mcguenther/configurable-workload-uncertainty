@@ -7,12 +7,15 @@ from typing import List, Dict
 import mlflow
 import numpy as np
 import pandas as pd
+import scipy
 import seaborn as sns
 import matplotlib.pyplot as plt
+from matplotlib import pyplot as plt
 from sklearn.metrics import mean_absolute_percentage_error, r2_score
 import json
 import arviz as az
 
+from scipy.spatial import cKDTree as KDTree
 from utils import get_date_time_uuid
 from models import NumPyroRegressor
 from dataclasses import dataclass
@@ -20,6 +23,123 @@ from dataclasses import dataclass
 RESULTS_EXP = "jdorn-multilevel-eval"
 plt.rcParams["figure.dpi"] = 300
 plt.rcParams["savefig.dpi"] = 300
+
+
+class Plotter:
+    def __init__(self, csv_path):
+        self.csv_path = csv_path
+
+    def log_figure(self, lbl):
+        plt.tight_layout()
+        fig_pdf_path = f"lastplot-errors-{lbl}.pdf"
+        plt.savefig(fig_pdf_path)
+        mlflow.log_figure(plt.gcf(), f"errors-{lbl}.png")
+        mlflow.log_artifact(fig_pdf_path)
+        # plt.show()
+
+
+class MultitaskPlotter(Plotter):
+    def plot_errors(self):
+        df = pd.read_csv(self.csv_path)
+        mlflow.log_artifact(self.csv_path)
+        print(df)
+
+        print("Plotting relative multitask performance")
+        metric_columns = [col for col in df.columns if col.startswith("metrics.")]
+
+        # Melt the DataFrame
+        melted_df = df.melt(
+            id_vars=[col for col in df.columns if col not in metric_columns],
+            value_vars=metric_columns,
+            var_name="Metric",
+            value_name="Value",
+        )
+
+        metric = "metrics.mape_overall"
+        sns.relplot(
+            data=melted_df,
+            x="params.relative_train_size",
+            # x="params.loo_budget_rel",
+            y="Value",
+            row="params.software-system",
+            col="Metric",
+            # col_wrap=4,
+            # sharey=False,
+            kind="line",
+            hue="params.model",
+            style="params.pooling_cat",
+            facet_kws={"sharey": False, "sharex": False},
+        )
+        # plt.suptitle("Absolute training size")
+        plt.tight_layout()
+        self.log_figure("abs-training-size")
+        plt.show()
+        # plt.yscale("log")
+        # Get the current y-axis limits
+        current_ylim = plt.ylim()
+        # Check if the current ymax is above 200
+        # if current_ylim[1] > 200:
+        #     # Set the ymax to 200
+        #     plt.ylim(current_ylim[0], 200)
+        # plt.ylim(0, 12)
+
+
+class TransferPlotter(Plotter):
+    def plot_errors(self):
+        # kwargs = {"run_id": self.run_id} if self.run_id else {"run_name": self.run_name}
+        # with mlflow.start_run(
+        #     **kwargs  # self.experiment_name.replace(" ", ""),
+        # ) as run:
+        df = pd.read_csv(self.csv_path)
+        mlflow.log_artifact(self.csv_path)
+        print(df)
+
+        print("Plotting relative transfer budget")
+        metric = "metrics.mape_overall"
+        sns.relplot(
+            data=df,
+            x="params.loo_budget",
+            # x="params.loo_budget_rel",
+            y=metric,
+            col="params.loo_idx",
+            kind="line",
+            hue="params.model",
+            style="params.pooling_cat",
+            row="params.relative_train_size",  # col_wrap=4,
+        )
+        plt.suptitle("Absolute training size")
+        # plt.yscale("log")
+        # Get the current y-axis limits
+        current_ylim = plt.ylim()
+        # Check if the current ymax is above 200
+        # if current_ylim[1] > 200:
+        #     # Set the ymax to 200
+        #     plt.ylim(current_ylim[0], 200)
+        plt.ylim(0, 12)
+        self.log_figure("abs-training-size")
+        print("Plotting absolute transfer budget")
+        metric = "metrics.mape_overall"
+        sns.relplot(
+            data=df,
+            x="params.loo_budget_rel",
+            # x="params.loo_budget_rel",
+            y=metric,
+            col="params.loo_idx",
+            kind="line",
+            hue="params.model",
+            style="params.pooling_cat",
+            row="params.relative_train_size",  # col_wrap=4,
+        )
+        plt.suptitle("Relative training size ")
+        # plt.yscale("log")
+        # Get the current y-axis limits
+        current_ylim = plt.ylim()
+        # Check if the current ymax is above 200
+        # if current_ylim[1] > 200:
+        #     # Set the ymax to 200
+        #     plt.ylim(current_ylim[0], 200)
+        plt.ylim(0, 12)
+        self.log_figure("rel-training-size")
 
 
 class Evaluation:
@@ -44,107 +164,6 @@ class Evaluation:
         # )
         # os.makedirs(self.output_base_path)
         # print(f"plotting to {self.output_base_path}")
-
-    def plot_errors(self):
-        kwargs = {"run_id": self.run_id} if self.run_id else {"run_name": self.run_name}
-        with mlflow.start_run(
-            **kwargs  # self.experiment_name.replace(" ", ""),
-        ) as run:
-            df = pd.read_csv(self.csv_path)
-            mlflow.log_artifact(self.csv_path)
-            print(df)
-
-            print("Plotting relative transfer budget")
-            metric = "metrics.mape_overall"
-            sns.relplot(
-                data=df,
-                x="params.loo_budget",
-                # x="params.loo_budget_rel",
-                y=metric,
-                col="params.loo_idx",
-                kind="line",
-                hue="params.model",
-                style="params.pooling_cat",
-                row="params.relative_train_size",  # col_wrap=4,
-            )
-            plt.suptitle("Absolute training size")
-            # plt.yscale("log")
-            # Get the current y-axis limits
-            current_ylim = plt.ylim()
-            # Check if the current ymax is above 200
-            # if current_ylim[1] > 200:
-            #     # Set the ymax to 200
-            #     plt.ylim(current_ylim[0], 200)
-            plt.ylim(0, 12)
-            self.log_figure("abs-training-size")
-
-            print("Plotting absolute transfer budget")
-            metric = "metrics.mape_overall"
-            sns.relplot(
-                data=df,
-                x="params.loo_budget_rel",
-                # x="params.loo_budget_rel",
-                y=metric,
-                col="params.loo_idx",
-                kind="line",
-                hue="params.model",
-                style="params.pooling_cat",
-                row="params.relative_train_size",  # col_wrap=4,
-            )
-            plt.suptitle("Relative training size ")
-            # plt.yscale("log")
-            # Get the current y-axis limits
-            current_ylim = plt.ylim()
-            # Check if the current ymax is above 200
-            # if current_ylim[1] > 200:
-            #     # Set the ymax to 200
-            #     plt.ylim(current_ylim[0], 200)
-            plt.ylim(0, 12)
-            self.log_figure("rel-training-size")
-
-            # score_df = score_df or self.score_df
-            # if len(score_df["exp_id"].unique()) < 2:
-            #     print("skipping errors because not enough training sets in data")
-            #     return
-            # print("start plotting errors")
-            # # err_type = err_type or self.err_type
-            # for err_type in score_df["err_type"].unique():
-            #     selected_error_df = score_df[score_df["err_type"] == err_type]
-            #     sns.relplot(
-            #         data=selected_error_df,
-            #         x="exp_id",
-            #         y="err",
-            #         hue="model",
-            #         col="env",
-            #         kind="line",
-            #         col_wrap=4,
-            #     )  # row="setting", )
-            #     plt.yscale("log")
-            #     plt.suptitle(err_type)
-            #     if "mape" in err_type:
-            #         y_min, y_max = plt.ylim()
-            #         new_y_max = min(y_max, 270)
-            #         pass
-            #         # plt.ylim((0, new_y_max))
-            #     elif "R2" in err_type:
-            #         pass
-            #         # plt.ylim((-0.5, 1.1))
-            #     multitask_file = os.path.join(
-            #         self.output_base_path, f"multitask-result-{err_type}.png"
-            #     )
-            #     plt.savefig(multitask_file)
-            #     plt.show()
-            #
-            # print(self.score_df)
-            # print("done")
-
-    def log_figure(self, lbl):
-        plt.tight_layout()
-        fig_pdf_path = f"lastplot-errors-{lbl}.pdf"
-        plt.savefig(fig_pdf_path)
-        mlflow.log_figure(plt.gcf(), f"errors-{lbl}.png")
-        mlflow.log_artifact(fig_pdf_path)
-        # plt.show()
 
     def plot_metadata(self, meta_df=None):
         kwargs = {"run_id": self.run_id} if self.run_id else {"run_name": self.run_name}
@@ -198,82 +217,301 @@ class Evaluation:
         with mlflow.start_run(
             run_name=self.run_name  # self.experiment_name.replace(" ", ""),
         ) as run:
-
             self.run_id = run.info.run_id
             # Initialize an empty list to store the data
-            data_list = []
+            data_list = {"transfer": [], "multitask": []}
 
             # Fetch the parent run and its children
             # parent_run = mlflow.get_run(self.parent_run)
+            print("fetching child runs of parent run", self.parent_run)
             child_runs = self.get_sub_runs(self.parent_run)
-
-            all_runs_in_experiment = mlflow.search_runs(
-                experiment_ids=[self.experiment_id],
-                filter_string=f"status='FINISHED'",
-            )
 
             # Iterate over the first-level nested runs
             for (row_id, child_run) in child_runs.iterrows():
-                lvl_1_run_id = child_run["run_id"]
-                model = child_run["params.model"]
-                print(f"fetching new model {model}")
                 lvl_1_params = self.get_params_dict(child_run)
-                # Fetch the second-level nested runs for each environment
-                relative_transfer_budgets = lvl_1_params["params.transfer_budgets"]
-                relative_transfer_budgets = json.loads(relative_transfer_budgets)
-
-                env_runs = self.get_sub_runs(lvl_1_run_id)
-                for (_, env_run) in env_runs.iterrows():
-                    env_idx = env_run["params.loo_idx"]
-                    print(f"getting budget runs for env idx {env_idx}")
-                    lvl_2_params = self.get_params_dict(env_run)
-                    lvl_2_run_id = env_run["run_id"]
-                    lvl_3_child_runs = self.get_sub_runs(lvl_2_run_id)
-                    env_data = []
-                    for (_, transfer_budget_run) in lvl_3_child_runs.iterrows():
-                        lvl_3_params = self.get_params_dict(transfer_budget_run)
-                        lvl_3_metrics = self.get_scores_dict(transfer_budget_run)
-                        joined_dict = {
-                            **lvl_1_params,
-                            **lvl_2_params,
-                            **lvl_3_params,
-                            **lvl_3_metrics,
-                        }
-                        # Append data to the list
-                        env_data.append(joined_dict)
-                    abs_transfer_budgets = [
-                        int(run_dict["params.loo_budget"]) for run_dict in env_data
-                    ]
-                    unique_abs_budgets = list(np.unique(abs_transfer_budgets))
-                    budget_map = {
-                        absolute: relative
-                        for absolute, relative in zip(
-                            sorted(unique_abs_budgets, reverse=True),
-                            sorted(relative_transfer_budgets, reverse=True),
-                        )
-                    }
-                    for run_dict in env_data:
-                        run_dict["params.loo_budget_rel"] = budget_map[
-                            int(run_dict["params.loo_budget"])
-                        ]
-                    data_list.extend(env_data)
+                experiment_type = lvl_1_params["params.experiment-type"]
+                if experiment_type == "transfer":
+                    results = self.eval_transfer_learning(child_run)
+                    data_list["transfer"].extend(results)
+                elif experiment_type == "multitask":
+                    results = self.eval_multitask_learning(child_run)
+                    data_list["multitask"].extend(results)
+                else:
+                    raise AssertionError
 
             # Create a pandas DataFrame from the collected data
-            data_df = pd.DataFrame(data_list)
+            if data_list[("transfer")]:
+                data_df = pd.DataFrame(data_list[("transfer")])
+                print(data_df)
+                csv_path = prepend_to_filename("transfer-", self.csv_path)
+                data_df.to_csv(csv_path)
+                mlflow.log_artifact(csv_path)
+                plotter = TransferPlotter(csv_path)
+                plotter.plot_errors()
 
-            # Print the DataFrame
-            print(data_df)
-            csv_path = self.csv_path
-            data_df.to_csv(csv_path)
-            mlflow.log_artifact(csv_path)
-            # mlflow.log_table(data_df, csv_path)
-            self.plot_errors()
+            if data_list[("multitask")]:
+                data_df = pd.DataFrame(data_list[("multitask")])
+                print(data_df)
+                csv_path = prepend_to_filename("multitask-", self.csv_path)
+                data_df.to_csv(csv_path)
+                mlflow.log_artifact(csv_path)
+                plotter = MultitaskPlotter(csv_path)
+                plotter.plot_errors()
+
+    def eval_multitask_learning(self, child_run):
+        lvl_1_run_id = child_run["run_id"]
+        model = child_run["params.model"]
+        print(f"fetching new model {model}")
+        child_run_params = self.get_params_dict(child_run)
+        metrics = self.get_scores_dict(child_run)
+        log = {**child_run_params, **metrics}
+
+        az_data = self.download_netcdf(child_run)
+        if az_data:
+            "this modle has az data"
+        artifact_tmp_folder = mlflow.artifacts.download_artifacts(
+            child_run.artifact_uri
+        )
+
+        return [log]
+
+    def eval_transfer_learning(self, child_run):
+        lvl_1_params = self.get_params_dict(child_run)
+        lvl_1_run_id = child_run["run_id"]
+        model = child_run["params.model"]
+        print(f"fetching new model {model}")
+        # Fetch the second-level nested runs for each environment
+        relative_transfer_budgets = lvl_1_params["params.transfer_budgets"]
+        relative_transfer_budgets = json.loads(relative_transfer_budgets)
+        env_runs = self.get_sub_runs(lvl_1_run_id)
+        data_list = []
+        for (_, env_run) in env_runs.iterrows():
+            env_idx = env_run["params.loo_idx"]
+            print(f"getting budget runs for env idx {env_idx}")
+            lvl_2_params = self.get_params_dict(env_run)
+            lvl_2_run_id = env_run["run_id"]
+            lvl_3_child_runs = self.get_sub_runs(lvl_2_run_id)
+            env_data = []
+            for (_, transfer_budget_run) in lvl_3_child_runs.iterrows():
+                lvl_3_params = self.get_params_dict(transfer_budget_run)
+                lvl_3_metrics = self.get_scores_dict(transfer_budget_run)
+                joined_dict = {
+                    **lvl_1_params,
+                    **lvl_2_params,
+                    **lvl_3_params,
+                    **lvl_3_metrics,
+                }
+                az_data = self.download_netcdf(transfer_budget_run)
+                if az_data:
+                    joined_dict["az_data"] = az_data
+                # Append data to the list
+                env_data.append(joined_dict)
+            abs_transfer_budgets = [
+                int(run_dict["params.loo_budget"]) for run_dict in env_data
+            ]
+            unique_abs_budgets = list(np.unique(abs_transfer_budgets))
+            budget_map = {
+                absolute: relative
+                for absolute, relative in zip(
+                    sorted(unique_abs_budgets, reverse=True),
+                    sorted(relative_transfer_budgets, reverse=True),
+                )
+            }
+            for run_dict in env_data:
+                run_dict["params.loo_budget_rel"] = budget_map[
+                    int(run_dict["params.loo_budget"])
+                ]
+
+            data_list.extend(env_data)
+        return data_list
 
     def get_sub_runs(self, parent_run_id):
         return mlflow.search_runs(
             experiment_ids=[self.experiment_id],
             filter_string=f"tags.mlflow.parentRunId = '{parent_run_id}' AND status='FINISHED'",
         )
+
+    def download_netcdf(self, child_run):
+
+        # MLflow Client initialisieren
+        client = mlflow.tracking.MlflowClient()
+
+        # Liste aller Artefakte für diesen Run
+        run_id = child_run.run_id
+        artifacts = client.list_artifacts(run_id)
+
+        # Jetzt filtern wir nach der Dateiendung
+        netcdf_artifacts = [a.path for a in artifacts if a.path.endswith(".netcdf")]
+
+        # Checken, ob wir was gefunden haben
+        if netcdf_artifacts:
+            # Nehmen wir an, du willst das erste .netcdf Artefakt herunterladen
+            local_path = client.download_artifacts(run_id, netcdf_artifacts[0])
+            az_data = az.from_netcdf(local_path)
+            filtered_variables = [
+                var for var in az_data.posterior.data_vars if "hyper" in var
+            ]
+            feature_names = list(
+                np.array(az_data.posterior.coords.variables["features"])
+            )
+            env_names = list(np.array(az_data.posterior.coords.variables["envs"]))
+            n_chain, n_draws, n_envs, n_features = az_data.posterior["influences"].shape
+            hyperior_mean_samples = az_data.posterior[
+                "influences-mean-hyperior"
+            ].values.reshape(-1, n_features)
+            hyperior_stddevs_samples = az_data.posterior[
+                "influences-stddevs-hyperior"
+            ].values.reshape(-1, n_features)
+            env_specific_samples = az_data.posterior["influences"].values.reshape(
+                -1, n_envs, n_features
+            )
+            ft_id = 5
+            feauture = feature_names[ft_id]
+            env_id = env_names[ft_id]
+            specific_infs = env_specific_samples[:, :, ft_id]
+            az_data.posterior["influences-mean-hyperior"]
+            az_data.posterior["influences-stddevs-hyperior"]
+            # results in n_chains x n_samples x n_simulations samples for simulated influence
+            n_simulations = 100
+            simulated_infl = np.concatenate(
+                [
+                    np.random.normal(
+                        hyperior_mean_samples[:, 0], hyperior_stddevs_samples[:, 0]
+                    )
+                    for _ in range(n_simulations)
+                ]
+            )
+            # for feature in feature_names:
+
+            # chain, draw, env, feature
+            kl_divergence(
+                np.array([0, 1, 1, 1, 1, 2, 3, 4]),
+                np.array([0, 1, 1, 1, 1, 2, 6, 8]) * 1.00001,
+            )
+            kl_divergence(
+                np.array([0, 1, 1, 1, 1, 2, 3, 4]),
+                np.array([0, 1, 1, 1, 1, 2, 3, 4]) * 1.00001,
+            )
+            # kl_divergence(specific_infs[:, 0], specific_infs[:, 0] * 1.00001)
+            scipy.stats.entropy(
+                list(specific_infs[:, 0]), list(specific_infs[:, 0]), base=2
+            )
+            scipy.stats.entropy(
+                list(specific_infs[:, 0]), list(specific_infs[:, 0]), base=2
+            )
+            plot_trace = False
+            if plot_trace:
+                az.plot_trace(az_data, var_names=filtered_variables, filter_vars=None)
+                plt.show()
+            print(f"\tArtefakt heruntergeladen nach: {local_path}")
+            return az_data
+        else:
+            print("\tKein .netcdf Artefakt gefunden.")
+
+
+def prepend_to_filename(string_to_prepend, path):
+    # Split the path into directory and filename
+    dir_name, file_name = os.path.split(path)
+
+    # Prepend the string to the filename
+    new_file_name = string_to_prepend + file_name
+
+    # Reconstruct the full path with the new filename
+    new_path = os.path.join(dir_name, new_file_name)
+
+    return new_path
+
+
+# https://mail.python.org/pipermail/scipy-user/2011-May/029521.html
+# https://gist.github.com/atabakd/ed0f7581f8510c8587bc2f41a094b518
+def kl_divergence(x, y):
+    """Compute the Kullback-Leibler divergence between two multivariate samples.
+      Parameters
+      ----------
+      x : 2D array (n,d)
+        Samples from distribution P, which typically represents the true
+        distribution.
+      y : 2D array (m,d)
+        Samples from distribution Q, which typically represents the approximate
+        distribution.
+      Returns
+      -------
+      out : float
+        The estimated Kullback-Leibler divergence D(P||Q).
+      References
+      ----------
+      Pérez-Cruz, F. Kullback-Leibler divergence estimation of
+    continuous distributions IEEE International Symposium on Information
+    Theory, 2008.
+    """
+
+    if np.all(x == y):
+        return 0.0
+
+    # Check the dimensions are consistent
+    x = np.atleast_2d(x)
+    y = np.atleast_2d(y)
+
+    x, y = x.T, y.T
+    n, d = x.shape
+    m, dy = y.shape
+    assert d == dy
+
+    # get distance to nearest non-identical neighbour for every sample
+    r = get_distances(x, x)
+    s = get_distances(x, y)
+
+    # There is a mistake in the paper. In Eq. 14, the right side misses a negative sign
+    # on the first term of the right hand side.
+    return -np.log(r / s).sum() * d / n + np.log(m / (n - 1.0))
+
+
+def get_distances(x, y):
+    x_remain = np.copy(x)
+    y_remain = np.copy(y)
+
+    # Build a KD tree representation of the samples and find the nearest neighbour
+    # of each point in x.
+    tree = KDTree(x_remain)
+    k = 3
+    neighbour_results = tree.query(y_remain, k=k, eps=0.01, p=2)
+    neighbour_ids = neighbour_results[1]
+    r = np.zeros(x.shape[0])
+    for i in range(k):
+        mask_for_existing_samples = r == 0
+        if not np.any(mask_for_existing_samples):
+            break
+        r[mask_for_existing_samples] = neighbour_results[0][
+            mask_for_existing_samples, i
+        ]
+    while np.any(r == 0):
+        mask_r_zero = r == 0.0
+        for idx in np.where(mask_r_zero)[0]:
+            sample = y[idx]
+            x_remain = np.atleast_2d(x[x != sample]).T
+            tree = KDTree(x_remain)
+            neighbour_results = tree.query(sample, k=1, eps=0.01, p=2)
+            r[idx] = neighbour_results[0]
+    return r
+
+
+def get_fitting_evaluator(parent_run: str, tracking_url: str, experiment_name: str):
+    experiment_name = experiment_name or "jdorn-tmp"
+    parent_run = parent_run
+    tracking_url = tracking_url
+    csv_path = "mlfloweval-last.csv"
+    run_id = None
+    run_name = "aggregation"
+    mlflow.set_tracking_uri(tracking_url)
+    idx = ["model", "env_id", "budget_abs", "rnd", "subject_system"]
+    experiment = mlflow.search_experiments(
+        filter_string=("attribute.name = '%s'" % experiment_name)
+    )[0]
+    experiment_id = experiment.experiment_id
+
+    mlflow.set_experiment(experiment_name=RESULTS_EXP)
+
+    run = mlflow.get_run(parent_run)
 
 
 def main():
@@ -286,14 +524,21 @@ def main():
     args = parser.parse_args()
     parent_run_id = args.run
     skip_aggregation = args.skip_aggregation
-    tracking_url = "http://185.209.223.218:5000"
+    from wluncert import experiment
+
+    tracking_url = experiment.MLFLOW_URI
     # tracking_url = "https://mlflow.sws.informatik.uni-leipzig.de"
     # parent_run_id = "d843627702ba4dadb2d7e08e99da8720"
     # parent_run_id = "224331c23c4b4575ba5dfc3ef2d30c04"
     # parent_run_id = "355878e4baae4be3a2792978e5643026" # jump3r
-    parent_run_id = "aa128508ab854fb3b3b1b91dd02b5337"
+    # parent_run_id = "ec5fe58c918046d4a20b8f497c348576"
+    # parent_run_id = "5fbb9d52019a42fba015a4b840ec2b2d"
+    parent_run_id = "d4f2c6b49e56427cbd2b56b462f39dd5"
     from experiment import EXPERIMENT_NAME
 
+    # al = get_fitting_evaluator(
+    #     parent_run_id, tracking_url, experiment_name=EXPERIMENT_NAME
+    # )
     al = Evaluation(parent_run_id, tracking_url, experiment_name=EXPERIMENT_NAME)
     if not skip_aggregation:
         al.run()
