@@ -38,7 +38,7 @@ from jax import numpy as jnp
 from data import SingleEnvData, WorkloadTrainingDataSet, Preprocessing
 
 # from wluncert.analysis import ModelEvaluation
-import mlflow
+import localflow as mlflow
 
 NO_POOLING = "NO_POOLING"
 COMPLETE_POOLING = "COMPLETE_POOLING"
@@ -307,7 +307,7 @@ class NumPyroRegressor(ExperimentationModelBase):
         bayesian_metrics = self.get_bayes_eval_dict(test_list)
         model_metrics = {**bayesian_metrics, **cost_df}
         eval.add_custom_model_dict(model_metrics)
-        self.persist_arviz_data()
+        #self.persist_arviz_data()
         return eval
 
     @classmethod

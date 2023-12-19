@@ -4,7 +4,7 @@ import os.path
 import time
 from typing import List, Dict
 
-import mlflow
+import localflow as mlflow
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -48,7 +48,7 @@ class ModelEvaluation:
             predictions, y_true
         )
         return (
-            mean_absolute_percentage_error(flattened_y_true, reshaped_predictions) * 100
+                mean_absolute_percentage_error(flattened_y_true, reshaped_predictions) * 100
         )
 
     @classmethod

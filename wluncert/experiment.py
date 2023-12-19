@@ -5,10 +5,8 @@ import time
 import uuid
 from typing import List, Dict
 
-import mlflow
-from mlflow.models import ModelSignature, infer_signature
+import localflow as mlflow
 import numpy as np
-from mlflow.utils.rest_utils import http_request
 
 import pandas as pd
 from joblib import Parallel, delayed
@@ -17,7 +15,7 @@ import uuid
 from analysis import ModelEvaluation
 from data import SingleEnvData, Standardizer
 from utils import get_date_time_uuid
-import mlfloweval
+
 
 # MLFLOW_URI = "http://172.26.92.43:5000"
 MLFLOW_USR = "jdorn"
@@ -331,7 +329,7 @@ class Replication:
             self.parent_run_id = run.info.run_id
             print(self.parent_run_id)
         time.sleep(0.2)
-        mlflow.end_run()
+        # mlflow.end_run()
 
         tasks = {key: [] for key in self.experiment_classes}
         transfer_tasks = []

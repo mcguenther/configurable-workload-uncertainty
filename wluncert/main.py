@@ -13,7 +13,7 @@ from experiment import (
     EXPERIMENT_NAME,
 )
 import os
-import mlflow
+import localflow as mlflow
 from data import (
     DataLoaderStandard,
     DataAdapterJump3r,
@@ -113,12 +113,12 @@ def main():
         rnds = list([11, 222, 333, 44, 55, 666, 77, 888, 99])
         # number of pairwise interactions > 10N for N>=22
         train_sizes = (
-            0.5,
+            # 0.5,
             0.75,
             1,
-            1.25,
-            1.4,
-            1.75,
+            # 1.25,
+            # 1.5,
+            # 1.75,
             2,
         )
         # train_sizes = 0.5, 1.0, 5, 10
@@ -130,7 +130,8 @@ def main():
         #     4,
         #     5,
         # )  # 55, 635, 65, 84
-        rnds = list(range(20))
+        # rnds = list(range(20))
+        rnds = list(range(3))
 
         selected_data = (
             # "jump3r",
