@@ -85,10 +85,10 @@ def main():
     if debug:
         chosen_model_lbls = []
         chosen_model_lbls.extend(["no-pooling-lin"])
-        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
+        chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
         # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
         chosen_model_lbls.extend(["partial-pooling-mcmc-extra"])
-        # chosen_model_lbls.extend(["cpooling-lin"])
+        chosen_model_lbls.extend(["cpooling-lin"])
         # chosen_model_lbls.extend(["cpooling-rf"])
         # chosen_model_lbls.extend(["no-pooling-rf"])
         chosen_model_lbls.extend(["no-pooling-dummy"])
@@ -113,11 +113,11 @@ def main():
         rnds = list([11, 222, 333, 44, 55, 666, 77, 888, 99])
         # number of pairwise interactions > 10N for N>=22
         train_sizes = (
-            # 0.5,
+            0.5,
             0.75,
             1,
-            # 1.25,
-            # 1.5,
+            1.25,
+            1.5,
             # 1.75,
             2,
         )
@@ -131,18 +131,18 @@ def main():
         #     5,
         # )  # 55, 635, 65, 84
         # rnds = list(range(20))
-        rnds = list(range(3))
+        rnds = list(range(5))
 
         selected_data = (
-            # "jump3r",
-            # "H2",
-            # "xz",
-            # "x264",
-            # "batik",
-            # "dconvert",
-            # "kanzi",
-            # "lrzip",
-            # "z3",
+            "jump3r",
+            "H2",
+            "xz",
+            "x264",
+            "batik",
+            "dconvert",
+            "kanzi",
+            "lrzip",
+            "z3",
             # "fastdownward",
             "artificial",
         )

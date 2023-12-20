@@ -291,7 +291,7 @@ class NumPyroRegressor(ExperimentationModelBase):
             "DOF_shrinkage": DOF_shrinkage,
             "elpd_loo_se": loo_data.se,
             "elpd_loo": loo_data.elpd_loo,
-            "test_set_log-likelihood": log_likelihood,
+            "test_set_log-likelihood": float(log_likelihood),
             "warning": loo_data.warning,
             "log_scale": loo_data.scale == "log",
         }

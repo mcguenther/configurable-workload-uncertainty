@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import List
 
 import os
 import re
@@ -17,6 +18,7 @@ META_FILE = "meta.json"
 METRICS_FILE = "metrics.json"
 PARAMS_FILE = "params.json"
 FOLDER_CHAR_LIMIT = 25
+import arviz as az
 
 
 class TaskTracker:
@@ -73,6 +75,91 @@ class TaskTracker:
         self.current_task.log_error(e)
 
 
+def get_experiment_folder(experiment_name):
+    experiment_name_clean = get_short_valid_id(experiment_name)
+    return os.path.join(RESULT_ROOT, experiment_name_clean)
+
+
+def get_experiment_run_names(experiment_name):
+    exp_folder = get_experiment_folder(experiment_name)
+    names = os.listdir(exp_folder)
+    return names
+
+
+class ExperimentResult:
+    def __init__(self, experiment_name):
+        self.experiment_id = get_short_valid_id(experiment_name)
+        self.folder = get_experiment_folder(self.experiment_id)
+        self.runs = self.__get_runs()
+
+    def __get_runs(self):
+        exp_folder = get_experiment_folder(self.experiment_id)
+        names = os.listdir(exp_folder)
+        paths = [os.path.join(self.folder, name) for name in names]
+        runs = [RunResult(self, path) for path in paths]
+        runs_d = {run.run_id: run for run in runs}
+        return runs_d
+
+    def get_run_by_id(self, run_id) -> RunResult:
+        return self.runs.get(run_id, None)
+
+
+class RunResult:
+    def __init__(self, experiment: ExperimentResult, path, parent_run: RunResult = None):
+        self.experimen = experiment
+        self.path = path
+        self.parent = parent_run
+        self.run_id = os.path.basename(self.path)
+
+    def has_sub_runs(self) -> bool:
+        for fname in os.listdir(self.path):
+            return os.path.isdir(os.path.join(self.path, fname))
+
+    def get_sub_runs(self) -> List[RunResult]:
+        sub_runs = []
+        for fname in os.listdir(self.path):
+            child_abs_path = os.path.join(self.path, fname)
+            if os.path.isdir(child_abs_path):
+                new_run = RunResult(self.experimen, child_abs_path, self)
+                sub_runs.append(new_run)
+        return sub_runs
+
+    def get_params(self):
+        return self.get_dict(PARAMS_FILE)
+
+    def get_metrics(self):
+        return self.get_dict(METRICS_FILE)
+
+    def get_meta(self):
+        return self.get_dict(META_FILE)
+
+    def get_arviz_data(self):
+        for fname in os.listdir(self.path):
+            if fname.endswith("netcdf"):
+                filke_path_abs = os.path.join(self.path, fname)
+                az_data = az.from_netcdf(filke_path_abs)
+                return az_data
+        return None
+
+    def get_artifact_path(self, artifact_name):
+        return os.path.join(self.path, artifact_name)
+
+    def get_dict(self, dict_name):
+        d_path = os.path.join(self.path, f"{dict_name.replace('.json', '')}.json")
+        with open(d_path, 'r') as file:
+            # print(d_path)
+            try:
+                d = json.load(file)
+            except Exception as e:
+                print(e)
+                print(d_path)
+                with open(d_path) as f:
+                    data = f.read()
+                    print(data)
+                raise e
+            return d
+
+
 class LocalTask:
     def __init__(self, name=None, path_id=None, experiment_id=None):
         self.time_cost = None
@@ -96,7 +183,7 @@ class LocalTask:
 
     def get_task_folder(self, ):
         if self.parent is None:
-            experiment_folder = os.path.join(RESULT_ROOT, self.experiment_id)
+            experiment_folder = get_experiment_folder(self.experiment_id)
             parent_folder = experiment_folder
         else:
             parent_folder = self.parent.get_task_folder()

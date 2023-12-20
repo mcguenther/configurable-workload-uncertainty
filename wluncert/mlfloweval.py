@@ -4,6 +4,7 @@ import os.path
 import time
 from typing import List, Dict
 
+import traceback
 import localflow as mlflow
 import numpy as np
 import pandas as pd
@@ -33,8 +34,11 @@ class Plotter:
         plt.tight_layout()
         fig_pdf_path = f"lastplot-errors-{lbl}.pdf"
         plt.savefig(fig_pdf_path)
-        mlflow.log_figure(plt.gcf(), f"errors-{lbl}.png")
+        # mlflow.log_figure(plt.gcf(), f"errors-{lbl}.png")
         mlflow.log_artifact(fig_pdf_path)
+        fig_png_path = f"lastplot-errors-{lbl}.png"
+        plt.savefig(fig_png_path)
+        mlflow.log_artifact(fig_png_path)
         # plt.show()
 
 
@@ -56,7 +60,7 @@ class MultitaskPlotter(Plotter):
         )
 
         metric = "metrics.mape_overall"
-        sns.relplot(
+        plot = sns.relplot(
             data=melted_df,
             x="params.relative_train_size",
             # x="params.loo_budget_rel",
@@ -70,8 +74,17 @@ class MultitaskPlotter(Plotter):
             style="params.pooling_cat",
             facet_kws={"sharey": False, "sharex": False},
         )
-        # plt.suptitle("Absolute training size")
+        # setting boundaries that make sense
         plt.tight_layout()
+        for ax, title in zip(plt.gcf().axes.flat, plot.col_names):
+            if "R2" in title:
+                ax.set_ylim(-1, 1)
+            if "mape" in str(title).lower():
+                y_min, y_max = ax.get_ylim()
+                ax.set_ylim(0, min(y_max, 250))
+                # ax.set_yscale('log')
+
+        # plt.suptitle("Absolute training size")
         self.log_figure("abs-training-size")
         plt.show()
         # plt.yscale("log")
@@ -152,11 +165,7 @@ class Evaluation:
         self.run_name = "aggregation"
         mlflow.set_tracking_uri(self.tracking_url)
         self.idx = ["model", "env_id", "budget_abs", "rnd", "subject_system"]
-        experiment = mlflow.search_experiments(
-            filter_string=("attribute.name = '%s'" % self.experiment_name)
-        )[0]
-        experiment_id = experiment.experiment_id
-        self.experiment_id = experiment_id
+        self.experiment_id = mlflow.get_short_valid_id(experiment_name)
         mlflow.set_experiment(experiment_name=RESULTS_EXP)
         #
         # self.output_base_path = os.path.join(
@@ -168,7 +177,7 @@ class Evaluation:
     def plot_metadata(self, meta_df=None):
         kwargs = {"run_id": self.run_id} if self.run_id else {"run_name": self.run_name}
         with mlflow.start_run(
-            **kwargs  # self.experiment_name.replace(" ", ""),
+                **kwargs  # self.experiment_name.replace(" ", ""),
         ) as run:
             print("start plotting metadata")
             meta_df = meta_df or self.meta_df
@@ -215,7 +224,7 @@ class Evaluation:
         mlflow.set_experiment(experiment_name=RESULTS_EXP)
         # mlflow.set_experiment(experiment_name=self.experiment_name)
         with mlflow.start_run(
-            run_name=self.run_name  # self.experiment_name.replace(" ", ""),
+                run_name=self.run_name  # self.experiment_name.replace(" ", ""),
         ) as run:
             self.run_id = run.info.run_id
             # Initialize an empty list to store the data
@@ -224,11 +233,13 @@ class Evaluation:
             # Fetch the parent run and its children
             # parent_run = mlflow.get_run(self.parent_run)
             print("fetching child runs of parent run", self.parent_run)
-            child_runs = self.get_sub_runs(self.parent_run)
+            exp_result = mlflow.ExperimentResult(self.experiment_id)
+            parent_run_result = exp_result.get_run_by_id(self.parent_run)
+            child_runs = parent_run_result.get_sub_runs()
 
             # Iterate over the first-level nested runs
-            for (row_id, child_run) in child_runs.iterrows():
-                lvl_1_params = self.get_params_dict(child_run)
+            for child_run in child_runs:
+                lvl_1_params = child_run.get_params()
                 experiment_type = lvl_1_params["params.experiment-type"]
                 if experiment_type == "transfer":
                     results = self.eval_transfer_learning(child_run)
@@ -259,53 +270,56 @@ class Evaluation:
                 plotter.plot_errors()
 
     def eval_multitask_learning(self, child_run):
-        lvl_1_run_id = child_run["run_id"]
-        model = child_run["params.model"]
+        child_run_params = child_run.get_params()
+        model = child_run_params["params.model"]
         print(f"fetching new model {model}")
-        child_run_params = self.get_params_dict(child_run)
-        metrics = self.get_scores_dict(child_run)
+        metrics = child_run.get_metrics()
         log = {**child_run_params, **metrics}
 
-        az_data = self.download_netcdf(child_run)
+        az_data = child_run.get_arviz_data()
         if az_data:
             "this modle has az data"
-        artifact_tmp_folder = mlflow.artifacts.download_artifacts(
-            child_run.artifact_uri
-        )
 
         return [log]
 
     def eval_transfer_learning(self, child_run):
-        lvl_1_params = self.get_params_dict(child_run)
-        lvl_1_run_id = child_run["run_id"]
-        model = child_run["params.model"]
+        lvl_1_params = child_run.get_params()
+        lvl_1_run_id = child_run.run_id
+        model = lvl_1_params["params.model"]
         print(f"fetching new model {model}")
         # Fetch the second-level nested runs for each environment
         relative_transfer_budgets = lvl_1_params["params.transfer_budgets"]
-        relative_transfer_budgets = json.loads(relative_transfer_budgets)
-        env_runs = self.get_sub_runs(lvl_1_run_id)
+        # relative_transfer_budgets = json.loads(relative_transfer_budgets)
+        env_runs = child_run.get_sub_runs()
         data_list = []
-        for (_, env_run) in env_runs.iterrows():
-            env_idx = env_run["params.loo_idx"]
-            print(f"getting budget runs for env idx {env_idx}")
-            lvl_2_params = self.get_params_dict(env_run)
-            lvl_2_run_id = env_run["run_id"]
-            lvl_3_child_runs = self.get_sub_runs(lvl_2_run_id)
-            env_data = []
-            for (_, transfer_budget_run) in lvl_3_child_runs.iterrows():
-                lvl_3_params = self.get_params_dict(transfer_budget_run)
-                lvl_3_metrics = self.get_scores_dict(transfer_budget_run)
-                joined_dict = {
-                    **lvl_1_params,
-                    **lvl_2_params,
-                    **lvl_3_params,
-                    **lvl_3_metrics,
-                }
-                az_data = self.download_netcdf(transfer_budget_run)
-                if az_data:
-                    joined_dict["az_data"] = az_data
-                # Append data to the list
-                env_data.append(joined_dict)
+        for env_run in env_runs:
+            try:
+                lvl_2_params = env_run.get_params()
+                env_idx = lvl_2_params["params.loo_idx"]
+                print(f"getting budget runs for env idx {env_idx}")
+                # lvl_2_params = self.get_params_dict(env_run)
+                lvl_2_run_id = env_run.run_id
+                lvl_3_child_runs = env_run.get_sub_runs()
+                env_data = []
+                for transfer_budget_run in lvl_3_child_runs:
+                    lvl_3_params = transfer_budget_run.get_params()
+                    lvl_3_metrics = transfer_budget_run.get_metrics()
+                    joined_dict = {
+                        **lvl_1_params,
+                        **lvl_2_params,
+                        **lvl_3_params,
+                        **lvl_3_metrics,
+                    }
+                    az_data = transfer_budget_run.get_arviz_data()
+                    if az_data:
+                        joined_dict["az_data"] = az_data
+                    # Append data to the list
+                    env_data.append(joined_dict)
+            except Exception as e:
+                tb = traceback.format_exc()
+                print("[LFlow]", e)
+                print(tb)
+
             abs_transfer_budgets = [
                 int(run_dict["params.loo_budget"]) for run_dict in env_data
             ]
@@ -325,11 +339,13 @@ class Evaluation:
             data_list.extend(env_data)
         return data_list
 
-    def get_sub_runs(self, parent_run_id):
-        return mlflow.search_runs(
-            experiment_ids=[self.experiment_id],
-            filter_string=f"tags.mlflow.parentRunId = '{parent_run_id}' AND status='FINISHED'",
-        )
+    # def get_sub_runs(self, parent_run_id):
+    #     exp_folder = mlflow.get_experiment_folder(self.experiment_name)
+    #     os.listd
+    #     return mlflow.search_runs(
+    #         experiment_ids=[self.experiment_id],
+    #         filter_string=f"tags.mlflow.parentRunId = '{parent_run_id}' AND status='FINISHED'",
+    #     )
 
     def download_netcdf(self, child_run):
 
@@ -533,6 +549,7 @@ def main():
     # parent_run_id = "5fbb9d52019a42fba015a4b840ec2b2d"
     # parent_run_id = "26fcff0b056e4ba5b262c28ef47dc4f9"
     parent_run_id = "231219-16-04-08-uncertainty-learning-2023-EDnxMVNhCg"
+    parent_run_id = "231220-10-53-08-uncertainty-learning-2023-JEsu9PFWxJ"
     from experiment import EXPERIMENT_NAME
 
     # al = get_fitting_evaluator(
