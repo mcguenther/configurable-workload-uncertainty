@@ -31,15 +31,15 @@ class Plotter:
         self.csv_path = csv_path
 
     def log_figure(self, lbl):
-        plt.tight_layout()
         fig_pdf_path = f"lastplot-errors-{lbl}.pdf"
+        print(f"Saving plt fig {lbl}")
         plt.savefig(fig_pdf_path)
-        # mlflow.log_figure(plt.gcf(), f"errors-{lbl}.png")
+        print(f"logging artifact at {fig_pdf_path}")
         mlflow.log_artifact(fig_pdf_path)
-        fig_png_path = f"lastplot-errors-{lbl}.png"
-        plt.savefig(fig_png_path)
-        mlflow.log_artifact(fig_png_path)
-        # plt.show()
+        print("done logging")
+        # fig_png_path = f"lastplot-errors-{lbl}.png"
+        # plt.savefig(fig_png_path)
+        # mlflow.log_artifact(fig_png_path)
 
 
 class MultitaskPlotter(Plotter):
@@ -76,12 +76,18 @@ class MultitaskPlotter(Plotter):
         )
         # setting boundaries that make sense
         plt.tight_layout()
-        for ax, title in zip(plt.gcf().axes.flat, plot.col_names):
+        for ax in plt.gcf().axes:
+            title = ax.get_title()
             if "R2" in title:
                 ax.set_ylim(-1, 1)
+                print("set R2 ylims")
             if "mape" in str(title).lower():
                 y_min, y_max = ax.get_ylim()
+                print("old y limits", y_min, y_max)
                 ax.set_ylim(0, min(y_max, 250))
+
+                y_min, y_max = ax.get_ylim()
+                print("new y limits", y_min, y_max)
                 # ax.set_yscale('log')
 
         # plt.suptitle("Absolute training size")
@@ -255,8 +261,7 @@ class Evaluation:
                 data_df = pd.DataFrame(data_list[("transfer")])
                 print(data_df)
                 csv_path = prepend_to_filename("transfer-", self.csv_path)
-                data_df.to_csv(csv_path)
-                mlflow.log_artifact(csv_path)
+                self.store_csvs(csv_path, data_df)
                 plotter = TransferPlotter(csv_path)
                 plotter.plot_errors()
 
@@ -264,10 +269,16 @@ class Evaluation:
                 data_df = pd.DataFrame(data_list[("multitask")])
                 print(data_df)
                 csv_path = prepend_to_filename("multitask-", self.csv_path)
-                data_df.to_csv(csv_path)
-                mlflow.log_artifact(csv_path)
+                self.store_csvs(csv_path, data_df)
                 plotter = MultitaskPlotter(csv_path)
                 plotter.plot_errors()
+
+    def store_csvs(self, csv_path, data_df):
+        data_df.to_csv(csv_path)
+        mlflow.log_artifact(csv_path)
+        xlsx_path = csv_path.replace(".csv", ".xlsx")
+        data_df.to_excel(xlsx_path)
+        mlflow.log_artifact(xlsx_path)
 
     def eval_multitask_learning(self, child_run):
         child_run_params = child_run.get_params()
@@ -549,7 +560,9 @@ def main():
     # parent_run_id = "5fbb9d52019a42fba015a4b840ec2b2d"
     # parent_run_id = "26fcff0b056e4ba5b262c28ef47dc4f9"
     parent_run_id = "231219-16-04-08-uncertainty-learning-2023-EDnxMVNhCg"
-    parent_run_id = "231220-10-53-08-uncertainty-learning-2023-JEsu9PFWxJ"
+    parent_run_id = "231220-10-53-08-uncertainty-learning-2023-JEsu9PFWxJ" # multitask
+    parent_run_id = "231220-14-06-10-uncertainty-learning-2023-aqSe3L6nWD" # transfer mini
+    parent_run_id = "231220-21-59-44-uncertainty-learning-2023-2yWWUcd6GN" # transfer gigantic
     from experiment import EXPERIMENT_NAME
 
     # al = get_fitting_evaluator(

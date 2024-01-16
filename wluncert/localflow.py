@@ -44,7 +44,6 @@ class TaskTracker:
         new_task = LocalTask(name=run_name, path_id=run_id, experiment_id=self.experiment)
         if self.current_task:
             new_task.set_parent(self.current_task)
-            self.current_task.add_child(new_task)
         self.current_task = new_task
         new_id = self.current_task.get_path_id()
         self.finished = False
@@ -176,7 +175,6 @@ class LocalTask:
         self.artifact_paths = []
         self.dicts = {}
         self.parent = None
-        self.children = []
         self.error = None
         self.start_time = time.time()
         self.info = TaskInfo(self.path_id)
@@ -194,9 +192,6 @@ class LocalTask:
 
     def set_parent(self, parent: LocalTask):
         self.parent = parent
-
-    def add_child(self, child: LocalTask):
-        self.children.append(child)
 
     def log_params(self, d):
         self.params = {**self.params, **d}

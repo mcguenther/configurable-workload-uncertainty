@@ -351,8 +351,13 @@ class NumPyroRegressor(ExperimentationModelBase):
         # # thought: we plug each sample into the model and compute the ll given the prior shapes.
         # ll_mean = float(ll["observations"].mean())
 
+        data_transformed = test_list
+        for preprocessing in self.preprocessings:
+            data_transformed = preprocessing.transform(data_transformed)
+
         lls_for_wl = []
-        for test_set in test_list:
+        for test_set in data_transformed:
+
             y_obs = test_set.get_y()
             X = self.get_jnp_array(test_set.get_X())
             merged_y_true.extend(y_obs)
@@ -360,6 +365,9 @@ class NumPyroRegressor(ExperimentationModelBase):
             env_id = test_set.env_id
             id_list = [env_id] * len(y_obs)
             n_envs = 1
+
+
+
             ll_samples = numpyro.infer.util.log_likelihood(
                 model,
                 self.mcmc.get_samples(),
@@ -617,7 +625,7 @@ class MCMCMultilevelPartial(NumPyroRegressor):
         return self.pooling_cat
 
 
-class MCMCPartialRobust(MCMCMultilevelPartial):
+class MCMCPartialRobustLasso(MCMCMultilevelPartial):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.model_id = "mcmc-partial-pooling-robust"
@@ -626,38 +634,36 @@ class MCMCPartialRobust(MCMCMultilevelPartial):
         err_expectation = 0.3
         err_hyperior_expectation = 1 / err_expectation
         err_exponential_pdf_rate = 1 / err_hyperior_expectation
-        joint_coef_stdev = 0.5
+        joint_coef_stdev = 0.5 #0.5  # 0.5  # 2 * y_order_of_magnitude
         num_opts = data.shape[1]
-        coefs_expected_stddev_change_over_envs = 0.2 / 2  # 0.5
+        coefs_expected_stddev_change_over_envs = 0.2  # 0.5
         coefs_hyperior_expected = 1 / coefs_expected_stddev_change_over_envs
         coefs_stds_prior_exp_rate = 1 / coefs_hyperior_expected
 
         with numpyro.plate("options", num_opts):
+            # in laplace, the spread is not the stddev as in normal dist, but it is the variance
+            scale_laplace = joint_coef_stdev / np.sqrt(2)  # Scale for Laplace to match standard deviation
+
             hyper_coef_means = numpyro.sample(
                 "influences-mean-hyperior",
-                npdist.Laplace(0, joint_coef_stdev / 4),
+                npdist.Laplace(0, scale_laplace),
             )
             hyper_coef_stddevs = numpyro.sample(
                 "influences-stddevs-hyperior",
                 npdist.Exponential(coefs_hyperior_expected),
             )
-
         with numpyro.plate("options", num_opts):
             with numpyro.plate("workloads", n_workloads):
-                # rnd_influences = numpyro.sample("influences", npdist.Normal(hyper_coef_means, hyper_coef_stddevs), )
-                # rnd_influences = numpyro.sample("influences", npdist.Cauchy(hyper_coef_means, hyper_coef_stddevs), )
                 rnd_influences = numpyro.sample(
                     "influences",
                     npdist.Normal(hyper_coef_means, hyper_coef_stddevs),
                 )
-
         with numpyro.plate("workloads", n_workloads):
             error_var = numpyro.sample("error", npdist.Exponential(1 / err_expectation))
-        # error_var = numpyro.sample("error", npdist.Exponential(1 / error_var))
 
         right_error = error_var[workloads]
         respective_influences = rnd_influences[workloads]
-        # respective_bases = bases[workloads]
+        # respective_bases = base[workloads]
         result_arr = jnp.multiply(data, respective_influences)
         result_arr = result_arr.sum(axis=1).ravel()  # + respective_bases
 

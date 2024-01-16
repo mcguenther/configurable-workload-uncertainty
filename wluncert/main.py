@@ -40,7 +40,7 @@ from models import (
     NoPoolingEnvModel,
     CompletePoolingEnvModel,
     MCMCCombinedNoPooling,
-    MCMCPartialRobust,
+    MCMCPartialRobustLasso,
     MCMCPartialHorseshoe,
     MCMCCombinedCompletePooling,
     MCMCPartialBaseDiff,
@@ -85,12 +85,18 @@ def main():
     if debug:
         chosen_model_lbls = []
         chosen_model_lbls.extend(["no-pooling-lin"])
-        chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
+
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
         # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
+        chosen_model_lbls.extend(["partial-pooling-mcmc-robust-pw"])
+        chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
+
         chosen_model_lbls.extend(["partial-pooling-mcmc-extra"])
         chosen_model_lbls.extend(["cpooling-lin"])
+
         # chosen_model_lbls.extend(["cpooling-rf"])
         # chosen_model_lbls.extend(["no-pooling-rf"])
+
         chosen_model_lbls.extend(["no-pooling-dummy"])
 
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe"])
@@ -115,11 +121,15 @@ def main():
         train_sizes = (
             0.5,
             0.75,
+            0.9,
             1,
-            1.25,
+            1.1,
+            # 1.25,
             1.5,
             # 1.75,
             2,
+            # 3,
+            4,
         )
         # train_sizes = 0.5, 1.0, 5, 10
         # rnds = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)  # 55, 635, 65, 84
@@ -131,18 +141,18 @@ def main():
         #     5,
         # )  # 55, 635, 65, 84
         # rnds = list(range(20))
-        rnds = list(range(5))
+        rnds = list(range(10))
 
         selected_data = (
-            "jump3r",
-            "H2",
-            "xz",
-            "x264",
-            "batik",
-            "dconvert",
-            "kanzi",
-            "lrzip",
-            "z3",
+            # "jump3r",
+            # "H2",
+            # "xz",
+            # "x264",
+            # "batik",
+            # "dconvert",
+            # "kanzi",
+            # "lrzip",
+            # "z3",
             # "fastdownward",
             "artificial",
         )
@@ -206,12 +216,12 @@ def main():
 
 def get_all_models(debug, n_jobs, plot):
     if debug:
-        mcmc_num_warmup = 750
-        mcmc_num_samples = 500
+        mcmc_num_warmup = 1000
+        mcmc_num_samples = 750
         mcmc_num_chains = 3
     else:
-        mcmc_num_warmup = 750
-        mcmc_num_samples = 750
+        mcmc_num_warmup = 1000
+        mcmc_num_samples = 1000
         mcmc_num_chains = 3
     progress_bar = False if n_jobs else True
     mcmc_kwargs = {
@@ -253,13 +263,13 @@ def get_all_models(debug, n_jobs, plot):
         preprocessings=[PaiwiseOptionMapper(), Standardizer()]
     )
 
-    model_multilevel_partial_robust = MCMCPartialRobust(
+    model_multilevel_partial_robust = MCMCPartialRobustLasso(
         plot=plot,
         **mcmc_kwargs,
         return_samples_by_default=True,
         preprocessings=[Standardizer()]
     )
-    model_multilevel_partial_robust_pw = MCMCPartialRobust(
+    model_multilevel_partial_robust_pw = MCMCPartialRobustLasso(
         plot=plot,
         **mcmc_kwargs,
         return_samples_by_default=True,
