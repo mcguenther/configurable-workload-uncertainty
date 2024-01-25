@@ -1,12 +1,13 @@
 pandas
-seaborn
+matplotlib~=3.7.1
+seaborn~=0.13.1
 graphviz
 networkx
 scikit-learn
 Markdown
 numpy==1.25.0
 joblib
-streamlit==1.24.0
+streamlit==1.30.0
 pyro-ppl
 numpyro[cpu]==0.12.1
 jax==0.4.14

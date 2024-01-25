@@ -3,7 +3,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 # Path to your NetCDF file
-file_path = "arvizdata.netcdf"
+file_path = "arvizdata-partial-pooling.netcdf"
 
 try:
     # Load the NetCDF file
@@ -37,6 +37,7 @@ try:
 
     # Visualization (Example: Histogram for a specific variable)
     filtered_variables = [var for var in data.posterior.data_vars if "hyper" in var]
+    # filtered_variables = None
     az.plot_posterior(data, var_names=filtered_variables)  # Replace 'variable_name'
     plt.tight_layout
     plt.show()

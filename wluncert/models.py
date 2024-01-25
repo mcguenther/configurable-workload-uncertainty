@@ -39,6 +39,7 @@ from data import SingleEnvData, WorkloadTrainingDataSet, Preprocessing
 
 # from wluncert.analysis import ModelEvaluation
 import localflow as mlflow
+from numpyro.distributions import constraints
 
 NO_POOLING = "NO_POOLING"
 COMPLETE_POOLING = "COMPLETE_POOLING"
@@ -169,6 +170,7 @@ class NumPyroRegressor(ExperimentationModelBase):
         plot=False,
         return_samples_by_default=False,
         preprocessings=None,
+        persist_arviz=False,
     ):
         super().__init__(preprocessings)
         self.coef_ = None
@@ -180,6 +182,7 @@ class NumPyroRegressor(ExperimentationModelBase):
         self.progress_bar = progress_bar
         self.plot = plot
         self.return_samples_by_default = return_samples_by_default
+        self.persist_arviz = persist_arviz
 
     @staticmethod
     def model(data):
@@ -260,7 +263,10 @@ class NumPyroRegressor(ExperimentationModelBase):
         rv_names = [
             k
             for k in post_vars
-            if ("influences" in k or "base" in k) and "decentered" not in k
+            if ("influences" in k or "base" in k)
+            and "decentered" not in k
+            and "_dim_" not in k
+            # and "relative-influences" not in k
         ]
         n_rvs = 0
         for rv_name in rv_names:
@@ -272,6 +278,9 @@ class NumPyroRegressor(ExperimentationModelBase):
                 n_envs = shape[-2]
                 n_features = shape[-1]
                 n_rvs += n_envs * n_features
+            elif len(shape) == 2:
+                # single RV
+                n_rvs += 1
             else:
                 raise AssertionError(
                     "Error in computing RV count for RV with name",
@@ -307,7 +316,8 @@ class NumPyroRegressor(ExperimentationModelBase):
         bayesian_metrics = self.get_bayes_eval_dict(test_list)
         model_metrics = {**bayesian_metrics, **cost_df}
         eval.add_custom_model_dict(model_metrics)
-        #self.persist_arviz_data()
+        if self.persist_arviz:
+            self.persist_arviz_data()
         return eval
 
     @classmethod
@@ -356,17 +366,15 @@ class NumPyroRegressor(ExperimentationModelBase):
             data_transformed = preprocessing.transform(data_transformed)
 
         lls_for_wl = []
-        for test_set in data_transformed:
 
+        n_envs = len(data_transformed)
+        for test_set in data_transformed:
             y_obs = test_set.get_y()
             X = self.get_jnp_array(test_set.get_X())
             merged_y_true.extend(y_obs)
             model = self.model
             env_id = test_set.env_id
             id_list = [env_id] * len(y_obs)
-            n_envs = 1
-
-
 
             ll_samples = numpyro.infer.util.log_likelihood(
                 model,
@@ -394,10 +402,10 @@ class MCMCMultilevelPartial(NumPyroRegressor):
         self.model_id = "mcmc-partial_pooling"
 
     def model(self, data, workloads, n_workloads, reference_y):
-        err_expectation = 0.3
+        err_expectation = 0.2
         err_hyperior_expectation = 1 / err_expectation
         err_exponential_pdf_rate = 1 / err_hyperior_expectation
-        joint_coef_stdev = 0.5  # 0.5  # 2 * y_order_of_magnitude
+        joint_coef_stdev = 0.2  # 0.5  # 2 * y_order_of_magnitude
         num_opts = data.shape[1]
         coefs_expected_stddev_change_over_envs = 0.2  # 0.5
         coefs_hyperior_expected = 1 / coefs_expected_stddev_change_over_envs
@@ -463,10 +471,13 @@ class MCMCMultilevelPartial(NumPyroRegressor):
         # mcmc.run(rng_key, X_agg[:, 0], X_agg[:, 1], X_agg[:, 2], given_obs=nfp_mean_agg, obs_stddev=nfp_stddev_agg)
 
         self.mcmc.run(rng_key, X, envs, n_envs, y)
+
         if self.plot:
-            self.plot_prior_dists(X, envs, n_envs)
             self.save_plot()
             self.plot_options()
+
+        if self.plot and False:
+            self.plot_prior_dists(X, envs, n_envs, y)
         return self.mcmc
 
     def plot_options(self, model_names=None, var_names=None):
@@ -524,14 +535,14 @@ class MCMCMultilevelPartial(NumPyroRegressor):
         time.sleep(0.1)
         plt.show()
 
-    def plot_prior_dists(self, X, envs, n_envs):
+    def plot_prior_dists(self, X, envs, n_envs, y):
         reparam_config = self.get_reparam_dict()
         print("plotting prior trace")
         reparam_model = reparam(self.model, config=reparam_config)
         nuts_kernel = npNUTS(reparam_model)
         prior_mcmc = npMCMC(
             nuts_kernel,
-            num_samples=1000,
+            num_samples=750,
             num_warmup=500,
             progress_bar=self.progress_bar,
             num_chains=self.num_chains,
@@ -539,7 +550,10 @@ class MCMCMultilevelPartial(NumPyroRegressor):
         rng_key_ = random.PRNGKey(0)
         rng_key_, rng_key = random.split(rng_key_)
         # mcmc.run(rng_key, X_agg[:, 0], X_agg[:, 1], X_agg[:, 2], given_obs=nfp_mean_agg, obs_stddev=nfp_stddev_agg)
-        prior_mcmc.run(rng_key, X[:20, :], envs[:20], n_envs, None)
+        print("starting prior plot!")
+        # prior_mcmc.run(rng_key, X[:20, :], envs[:20], n_envs, None)
+        n = min(len(envs), 500)
+        prior_mcmc.run(rng_key, X[:n], envs[:n], n_envs, y[:n])
         # arviz_data = self.get_arviz_data(prior_mcmc)
         self.save_plot(prior_mcmc, loo=False, lbl="prior")
 
@@ -629,21 +643,18 @@ class MCMCPartialRobustLasso(MCMCMultilevelPartial):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.model_id = "mcmc-partial-pooling-robust"
+        # print("2")
+        self.joint_coef_stdev = 0.2  # 0.62  # 0.5  # 0.5  # 2 * y_order_of_magnitude
+        self.coefs_expected_stddev_change_over_envs = 0.2
+        self.error_expectation = 1.0
 
     def model(self, data, workloads, n_workloads, reference_y):
-        err_expectation = 0.3
-        err_hyperior_expectation = 1 / err_expectation
-        err_exponential_pdf_rate = 1 / err_hyperior_expectation
-        joint_coef_stdev = 0.5 #0.5  # 0.5  # 2 * y_order_of_magnitude
         num_opts = data.shape[1]
-        coefs_expected_stddev_change_over_envs = 0.2  # 0.5
-        coefs_hyperior_expected = 1 / coefs_expected_stddev_change_over_envs
-        coefs_stds_prior_exp_rate = 1 / coefs_hyperior_expected
-
+        coefs_hyperior_expected = 1 / self.coefs_expected_stddev_change_over_envs
+        scale_laplace = self.joint_coef_stdev / np.sqrt(2)
         with numpyro.plate("options", num_opts):
             # in laplace, the spread is not the stddev as in normal dist, but it is the variance
-            scale_laplace = joint_coef_stdev / np.sqrt(2)  # Scale for Laplace to match standard deviation
-
+            # Scale for Laplace to match standard deviation
             hyper_coef_means = numpyro.sample(
                 "influences-mean-hyperior",
                 npdist.Laplace(0, scale_laplace),
@@ -659,13 +670,82 @@ class MCMCPartialRobustLasso(MCMCMultilevelPartial):
                     npdist.Normal(hyper_coef_means, hyper_coef_stddevs),
                 )
         with numpyro.plate("workloads", n_workloads):
-            error_var = numpyro.sample("error", npdist.Exponential(1 / err_expectation))
+            error_var = numpyro.sample(
+                "error", npdist.Exponential(1 / self.error_expectation)
+            )
+        with numpyro.plate("workloads", n_workloads):
+            base = numpyro.sample("base", npdist.Normal(-1, 0.5))
 
         right_error = error_var[workloads]
         respective_influences = rnd_influences[workloads]
-        # respective_bases = base[workloads]
+        respective_bases = base[workloads]
         result_arr = jnp.multiply(data, respective_influences)
-        result_arr = result_arr.sum(axis=1).ravel()  # + respective_bases
+        result_arr = result_arr.sum(axis=1).ravel() + respective_bases
+
+        with numpyro.plate("data", result_arr.shape[0]):
+            obs = numpyro.sample(
+                "observations", npdist.Normal(result_arr, right_error), obs=reference_y
+            )
+        return obs
+
+
+class MCMCPartialRobustLassoAdaptiveShrinkage(MCMCPartialRobustLasso):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.model_id = "mcmc-partial-pooling-robust-shrinkage-hyper"
+
+    def get_reparam_dict(self):
+        reparam_config = {
+            "influences": LocScaleReparam(0),
+            # "base": LocScaleReparam(0),
+            "influences-mean-hyperior": LocScaleReparam(0),
+            # "influences-stddevs-hyperior": LocScaleReparam(0),
+        }
+        return reparam_config
+
+    def model(self, data, workloads, n_workloads, reference_y):
+        num_opts = data.shape[1]
+        coefs_hyperior_expected = 1 / self.coefs_expected_stddev_change_over_envs
+        scale_laplace = self.joint_coef_stdev / np.sqrt(2)
+        hyper_hyper_regulariation_strength = numpyro.sample(
+            "influences-regularization-strength",
+            npdist.Exponential(1),  # / scale_laplace),
+        )
+        # hyper_hyper_influence_variation = numpyro.sample(
+        #     "influence-variation-hyperior",
+        #     npdist.Exponential(coefs_hyperior_expected),
+        # )
+
+        with numpyro.plate("options", num_opts):
+            # in laplace, the spread is not the stddev as in normal dist, but it is the variance
+            # Scale for Laplace to match standard deviation
+
+            hyper_coef_means = numpyro.sample(
+                "influences-mean-hyperior",
+                npdist.Laplace(0, hyper_hyper_regulariation_strength),
+            )
+            hyper_coef_stddevs = numpyro.sample(
+                "influences-stddevs-hyperior",
+                npdist.HalfCauchy(coefs_hyperior_expected),
+            )
+        with numpyro.plate("options", num_opts):
+            with numpyro.plate("workloads", n_workloads):
+                rnd_influences = numpyro.sample(
+                    "influences",
+                    npdist.Normal(hyper_coef_means, hyper_coef_stddevs),
+                )
+        with numpyro.plate("workloads", n_workloads):
+            error_var = numpyro.sample(
+                "error", npdist.Exponential(1 / self.error_expectation)
+            )
+        with numpyro.plate("workloads", n_workloads):
+            base = numpyro.sample("base", npdist.Normal(-1, 0.5))
+
+        right_error = error_var[workloads]
+        respective_influences = rnd_influences[workloads]
+        respective_bases = base[workloads]
+        result_arr = jnp.multiply(data, respective_influences)
+        result_arr = result_arr.sum(axis=1).ravel() + respective_bases
 
         with numpyro.plate("data", result_arr.shape[0]):
             obs = numpyro.sample(
@@ -688,7 +768,7 @@ class MCMCPartialHorseshoe(MCMCMultilevelPartial):
         return reparam_config
 
     def model(self, data, workloads, n_workloads, reference_y):
-        err_expectation = 0.3
+        err_expectation = 0.2
         num_opts = data.shape[1]
         coefs_expected_stddev_change_over_envs = 0.2
         coefs_hyperior_expected = 1 / coefs_expected_stddev_change_over_envs
@@ -734,74 +814,174 @@ class MCMCPartialBaseDiff(MCMCMultilevelPartial):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.model_id = "mcmc-base-diff"
+        self.printed_priors = False
 
     def get_reparam_dict(self):
         reparam_config = {
-            "influences": LocScaleReparam(0),
-            "base": LocScaleReparam(0),
-            "influences-mean-hyperior": LocScaleReparam(0),
+            "relative-influences": LocScaleReparam(0),
+            # "base": LocScaleReparam(0),
+            # "influences-mean-hyperior": LocScaleReparam(0),
+            # "influences-stddevs-hyperior": LocScaleReparam(0),
+            # "influences": LocScaleReparam(0),
         }
         return reparam_config
 
     def model(self, data, workloads, n_workloads, reference_y):
-        err_expectation = 0.3
+        err_expectation = 1.0
         err_hyperior_expectation = 1 / err_expectation
         err_exponential_pdf_rate = 1 / err_hyperior_expectation
         joint_coef_stdev = 0.5  # 0.5  # 2 * y_order_of_magnitude
         num_opts = data.shape[1]
-        coefs_expected_stddev_change_over_envs = 0.2  # 0.5
-        coefs_hyperior_expected = 1 / coefs_expected_stddev_change_over_envs
-        coefs_stds_prior_exp_rate = 1 / coefs_hyperior_expected
-        base_order_of_magnitude = (
-            jnp.abs(reference_y).max() if reference_y is not None else 1
+
+        if reference_y is None:
+            y_means = jnp.array([1] * n_workloads)
+            y_stds = smallest_vals_dists = relative_variances = y_mins = y_means
+
+            y_means_np = y_stds_np = relative_variances_np = y_mins_np = np.array(
+                [1] * n_workloads
+            )
+            coefs_exp_stddev_change_over_envs = 1
+        else:
+            y_df = pd.DataFrame({"w": workloads, "y": reference_y})
+            workload_groups = y_df.groupby(["w"])
+            y_means_np = np.atleast_1d(workload_groups.mean().values.squeeze())
+            y_means = jnp.array(y_means_np)
+            y_mins_np = np.atleast_1d(workload_groups.min().values.squeeze())
+            y_mins = jnp.array(y_mins_np)
+            y_stds_np = np.atleast_1d(workload_groups.std().values.squeeze())
+            y_stds = jnp.array(y_stds_np)
+            smallest_vals_dists = workload_groups["y"].apply(smallest_distance).values
+            default_rel_std = 0.1
+            alternative_base_std = y_mins_np * default_rel_std
+            zero_maks = smallest_vals_dists == 0.0
+            smallest_vals_dists[zero_maks] = alternative_base_std[zero_maks]
+            relative_variances_np = y_stds_np / y_means_np
+
+            relative_variances = y_stds_np / y_means_np
+        ratio_of_influential_options = 1.0
+        coefs_exp_rel_infl_scaled = jnp.mean(
+            ratio_of_influential_options * relative_variances
         )
-        base_order_of_magnitude_std = (
-            jnp.std(reference_y) if reference_y is not None else 1
+        coefs_exp_rel_infl_scaled_np = np.mean(
+            ratio_of_influential_options * relative_variances
         )
 
+        coefs_exp_stddev_change_over_envs = jnp.std(relative_variances)
+        coefs_exp_stddev_change_over_envs_np = np.std(relative_variances)
+        coefs_hyperior_expected = 1 / coefs_exp_stddev_change_over_envs
+        coefs_hyperior_expected_np = 1 / coefs_exp_stddev_change_over_envs_np
+
+        #### BASE ####
+        if not self.printed_priors:
+            print("base TEST")
+            print("min_y per env", y_mins_np)
+            print("dist between two smallest y vals", smallest_vals_dists)
+            print("y_std", y_stds_np)
         with numpyro.plate("workloads", n_workloads):
-            std_mean = numpyro.sample(
-                "standardization_mean", npdist.Normal(0, base_order_of_magnitude)
+            base = numpyro.sample(
+                "base",
+                # npdist.Exponential(
+                #     1 / (y_mins_np * 2),
+                # ),
+                # "base",
+                # npdist.Laplace(
+                #     y_mins_np,
+                #     y_stds_np,
+                # ),
+                npdist.TruncatedNormal(y_means, y_stds_np, low=0.0),
             )
+        with numpyro.plate("workloads", n_workloads):
+            variance = numpyro.sample(
+                "variance-influences",
+                # npdist.Exponential(
+                #     1 / (y_stds_np * 2),
+                # ),
+                npdist.TruncatedNormal(y_stds_np, y_stds_np, low=0.0),
+            )
+
             # std_std = numpyro.sample("standardization_std", npdist.Exponential(base_order_of_magnitude_std))
 
-        with numpyro.plate("options", num_opts):
-            hyper_coef_means = numpyro.sample(
-                "influences-mean-hyperior",
-                npdist.Normal(0, joint_coef_stdev),
-            )
-            hyper_coef_stddevs = numpyro.sample(
-                "influences-stddevs-hyperior",
-                npdist.Exponential(coefs_hyperior_expected),
-            )
+        #### HYPERIORS ####
+        # if not self.printed_priors:
+        #     print("influences-mean-hyperior", coefs_exp_rel_infl_scaled_np)
+        #     print("influences-stddevs-hyperior", coefs_hyperior_expected_np)
+        # with numpyro.plate("options", num_opts):
+        #     hyper_coef_means = numpyro.sample(
+        #         "influences-mean-hyperior",
+        #         npdist.Laplace(
+        #             0, ratio_of_influential_options
+        #         ),  # coefs_exp_rel_infl_scaled_np),
+        #         # npdist.Exponential(0.8),
+        #     )
+        #     hyper_coef_stddevs = numpyro.sample(
+        #         "influences-stddevs-hyperior",
+        #         npdist.Exponential(0.5),  # coefs_hyperior_expected_np),
+        #     )
 
+        #### RELATIVE INFLUENCES ####
         with numpyro.plate("options", num_opts):
             with numpyro.plate("workloads", n_workloads):
                 rnd_influences = numpyro.sample(
-                    "influences",
-                    npdist.Normal(hyper_coef_means, hyper_coef_stddevs),
+                    "relative-influences",
+                    npdist.Laplace(0, 1.0),
                 )
+
         rnd_influences_absolute = numpyro.deterministic(
-            "influences_scaled", (rnd_influences) / std_mean[:, jnp.newaxis]
+            "influences", rnd_influences * variance[:, jnp.newaxis]
         )
 
-        with numpyro.plate("workloads", n_workloads):
-            error_var = numpyro.sample("error", npdist.Exponential(1 / err_expectation))
-            # base = numpyro.sample("base", npdist.Normal(hyper_base_means, hyper_base_stddevs))
-        # error_var = numpyro.sample("error", npdist.Exponential(1 / error_var))
+        # with numpyro.plate("options", num_opts):
+        #     hyper_coef_means = numpyro.sample(
+        #         "influences-mean-hyperior",
+        #         npdist.Laplace(0, y_stds_np * 2),  # coefs_exp_rel_infl_scaled_np),
+        #         # npdist.Exponential(0.8),
+        #     )
+        #     hyper_coef_stddevs = numpyro.sample(
+        #         "influences-stddevs-hyperior",
+        #         npdist.Exponential(
+        #             1 / np.std(y_stds_np)
+        #         ),  # coefs_hyperior_expected_np),
+        #     )
 
-        right_error = error_var[workloads]
-        respective_influences = rnd_influences[workloads]
-        respective_influences = rnd_influences_absolute[workloads]
-        # respective_bases = base[workloads]
-        result_arr = jnp.multiply(data, respective_influences)
-        result_arr = result_arr.sum(axis=1).ravel()  # + respective_bases
+        #### EXTRA ABS INFLUENCES ###
+        # with numpyro.plate("options", num_opts):
+        #     with numpyro.plate("workloads", n_workloads):
+        #         extra_abs_influences = numpyro.sample(
+        #             "influences",
+        #             npdist.Laplace(0, y_stds_np),
+        #         )
+
+        # multiplication checks out, try with 5 options and 4 WL: np.arange(5*4).reshape(4,5)* np.arange(1,5)[:, np.newaxis]
+        with numpyro.plate("workloads", n_workloads):
+            error_var = numpyro.sample("error", npdist.Exponential(1 / 1.0))
+
+        scaled_error = error_var * variance
+        right_error = scaled_error[workloads]
+        # respective_influences = rnd_influences_absolute[workloads]
+        respective_abs_influences = rnd_influences_absolute[workloads]
+        respective_bases = base[workloads]
+        # result_arr = jnp.multiply(data, respective_influences)
+        result_arr_extra_absolute = jnp.multiply(data, respective_abs_influences)
+        result_arr = (
+            # result_arr.sum(axis=1).ravel() +
+            result_arr_extra_absolute.sum(axis=1).ravel()
+            + respective_bases
+        )
 
         with numpyro.plate("data", result_arr.shape[0]):
             obs = numpyro.sample(
                 "observations", npdist.Normal(result_arr, right_error), obs=reference_y
             )
+
+        self.printed_priors = True
         return obs
+
+
+def smallest_distance(group):
+    smallest_values = group.nsmallest(2)
+    if len(smallest_values) < 2:
+        return None  # or 0, if you prefer to consider single-value groups as having zero distance
+    return smallest_values.iloc[1] - smallest_values.iloc[0]
 
 
 class MCMCCombinedNoPooling(MCMCMultilevelPartial):
@@ -812,22 +992,26 @@ class MCMCCombinedNoPooling(MCMCMultilevelPartial):
         self.model_id = "mcmc-no-pooling-combined"
 
     def model(self, data, workloads, n_workloads, reference_y):
-        err_expectation = 0.3
+        err_expectation = 1.0
         num_opts = data.shape[1]
-        coefs_expected_stddev_change_over_envs = 0.2
+        expected_coef_stdev = 0.2
+        scale_laplace = expected_coef_stdev / np.sqrt(2)
         with numpyro.plate("options", num_opts):
             with numpyro.plate("workloads", n_workloads):
                 rnd_influences = numpyro.sample(
                     "influences",
-                    npdist.Normal(0, coefs_expected_stddev_change_over_envs),
+                    npdist.Laplace(0, scale_laplace),
                 )
         with numpyro.plate("workloads", n_workloads):
             error_var = numpyro.sample("error", npdist.Exponential(1 / err_expectation))
+        with numpyro.plate("workloads", n_workloads):
+            base = numpyro.sample("base", npdist.Normal(-1, 0.5))
 
         right_error = error_var[workloads]
         respective_influences = rnd_influences[workloads]
+        respective_bases = base[workloads]
         result_arr = jnp.multiply(data, respective_influences)
-        result_arr = result_arr.sum(axis=1).ravel()
+        result_arr = result_arr.sum(axis=1).ravel() + respective_bases
 
         with numpyro.plate("data", result_arr.shape[0]):
             obs = numpyro.sample(
@@ -890,25 +1074,65 @@ class MCMCCombinedNoPooling(MCMCMultilevelPartial):
         plt.show()
 
 
+class MCMCCombinedNoPoolingAdaptiveShrinkage(MCMCCombinedNoPooling):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.model_id = "mcmc-no-pooling-combined-adaptive-shrinkage"
+
+    def model(self, data, workloads, n_workloads, reference_y):
+        err_expectation = 1.0
+        num_opts = data.shape[1]
+        expected_coef_stdev = 1.0
+        scale_laplace = expected_coef_stdev / np.sqrt(2)
+        hyper_hyper_regulariation_strength = numpyro.sample(
+            "influences-regularization-strength",
+            npdist.Exponential(1 / scale_laplace),
+        )
+        with numpyro.plate("options", num_opts):
+            with numpyro.plate("workloads", n_workloads):
+                rnd_influences = numpyro.sample(
+                    "influences",
+                    npdist.Laplace(0, hyper_hyper_regulariation_strength),
+                )
+        with numpyro.plate("workloads", n_workloads):
+            error_var = numpyro.sample("error", npdist.Exponential(1 / err_expectation))
+        with numpyro.plate("workloads", n_workloads):
+            base = numpyro.sample("base", npdist.Normal(-1, 0.5))
+
+        right_error = error_var[workloads]
+        respective_influences = rnd_influences[workloads]
+        respective_bases = base[workloads]
+        result_arr = jnp.multiply(data, respective_influences)
+        result_arr = result_arr.sum(axis=1).ravel() + respective_bases
+
+        with numpyro.plate("data", result_arr.shape[0]):
+            obs = numpyro.sample(
+                "observations", npdist.Normal(result_arr, right_error), obs=reference_y
+            )
+        return obs
+
+
 class MCMCCombinedCompletePooling(MCMCCombinedNoPooling):
+    pooling_cat = COMPLETE_POOLING
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.model_id = "mcmc-complete-pooling-combined"
 
     def model(self, data, workloads, n_workloads, reference_y):
-        joint_coef_stdev = 0.5  # 0.25  # 2 * y_order_of_magnitude
+        joint_coef_stdev = 0.2  # 0.25  # 2 * y_order_of_magnitude
         num_opts = data.shape[1]
 
         with numpyro.plate("options", num_opts):
             rnd_influences = numpyro.sample(
                 "influences",
-                npdist.Normal(0, joint_coef_stdev),
+                npdist.Laplace(0, joint_coef_stdev / np.sqrt(2)),
             )
 
-        # base = numpyro.sample("base", npdist.Laplace(0, joint_coef_stdev))
+        base = numpyro.sample("base", npdist.Normal(-1, 1.0))
         result_arr = jnp.multiply(data, rnd_influences)
-        result_arr = result_arr.sum(axis=1).ravel()  # + base
-        error_var = numpyro.sample("error", npdist.Exponential(1 / 0.1))
+        result_arr = result_arr.sum(axis=1).ravel() + base
+        error_var = numpyro.sample("error", npdist.Exponential(1 / 0.5))
 
         with numpyro.plate("data", result_arr.shape[0]):
             obs = numpyro.sample(

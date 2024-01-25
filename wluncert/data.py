@@ -8,7 +8,12 @@ import scipy
 from pycosa import util
 import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, PolynomialFeatures
+from sklearn.preprocessing import (
+    StandardScaler,
+    PolynomialFeatures,
+    MinMaxScaler,
+    MaxAbsScaler,
+)
 
 from jax import numpy as jnp
 
@@ -543,6 +548,71 @@ class DataAdapterFastdownward(DataAdapter):
         return cleared_sys_df
 
 
+class DataAdapterVP9(DataAdapter):
+    env_name = "workload"
+    obsolete_col_names = ["id", "std-time"]
+    nfp_lbls = [
+        "median-time",
+        "mean-time",
+        "mean-compression-ratio",
+    ]
+
+    def __init__(self, data_loader: DataLoaderStandard):
+        self.environment_col_name = self.get_environment_col_name()
+        self.nfps = self.get_nfp_lbls()
+        self.obsolete_columns = self.get_obsolete_column_names()
+        self.environment_lables = None
+        super().__init__(data_loader, self.environment_col_name)
+
+    def get_obsolete_column_names(self):
+        return DataAdapterVP9.obsolete_col_names
+
+    def get_nfp_lbls(self):
+        return DataAdapterVP9.nfp_lbls
+
+    def get_environment_col_name(self):
+        return DataAdapterVP9.env_name
+
+    def get_environment_lables(self):
+        return list(self.environment_lables)
+
+    def get_nfps(self):
+        return self.nfps
+
+    def get_transformed_df(
+        self,
+        cleared_sys_df,
+    ):
+        cleared_sys_df = self.factorize_workload_col(cleared_sys_df)
+
+        cleared_sys_df = cleared_sys_df.drop(
+            columns=self.obsolete_columns,
+        )
+        all_cols = cleared_sys_df.columns
+        middle_cols = [self.environment_col_name]
+        options = set(all_cols) - {*self.nfps, *middle_cols}
+        cleared_sys_df = cleared_sys_df[
+            [*options, self.environment_col_name, *self.nfps]
+        ]
+        # changing column order to *OPTIONS, workload, workload-scale, *NFPS
+        return cleared_sys_df
+
+
+class DataAdapterx265(DataAdapterVP9):
+    obsolete_col_names = ["id", "std-time", "std-compression-ratio"]
+    nfp_lbls = [
+        "median-time",
+        "mean-time",
+        "mean-compression-ratio",
+    ]
+
+    def get_obsolete_column_names(self):
+        return DataAdapterx265.obsolete_col_names
+
+    def get_nfp_lbls(self):
+        return DataAdapterx265.nfp_lbls
+
+
 class DataAdapterArtificial(DataAdapter):
     def __init__(self, data_loader: DataLoaderStandard, noise_std=None):
         self.environment_col_name = "workload"
@@ -635,7 +705,7 @@ class Standardizer(Preprocessing):
         for single_env_data in env_data:
             env_id = int(single_env_data.env_id)
             X = single_env_data.get_X()
-            std_mapper_X = StandardScaler()
+            std_mapper_X = MaxAbsScaler()
             std_mapper_X.fit(X)
             std_mappers_ys = {nfp: StandardScaler() for nfp in single_env_data.nfps}
             for nfp_name, scaler in std_mappers_ys.items():
