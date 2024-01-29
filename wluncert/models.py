@@ -849,6 +849,10 @@ class MCMCPartialBaseDiff(MCMCMultilevelPartial):
             y_mins_np = np.atleast_1d(workload_groups.min().values.squeeze())
             y_mins = jnp.array(y_mins_np)
             y_stds_np = np.atleast_1d(workload_groups.std().values.squeeze())
+            if np.any(np.isnan(y_stds_np)):
+                # only one sample 0_O
+                y_stds_np = y_mins_np
+
             y_stds = jnp.array(y_stds_np)
             smallest_vals_dists = workload_groups["y"].apply(smallest_distance).values
             default_rel_std = 0.1
@@ -867,39 +871,46 @@ class MCMCPartialBaseDiff(MCMCMultilevelPartial):
         )
 
         coefs_exp_stddev_change_over_envs = jnp.std(relative_variances)
-        coefs_exp_stddev_change_over_envs_np = np.std(relative_variances)
-        coefs_hyperior_expected = 1 / coefs_exp_stddev_change_over_envs
-        coefs_hyperior_expected_np = 1 / coefs_exp_stddev_change_over_envs_np
+        # coefs_exp_stddev_change_over_envs_np = np.std(relative_variances)
+        # coefs_hyperior_expected = 1 / coefs_exp_stddev_change_over_envs
+        # coefs_hyperior_expected_np = 1 / coefs_exp_stddev_change_over_envs_np
 
         #### BASE ####
         if not self.printed_priors:
             print("base TEST")
+            print("mean_y per env", y_means_np)
             print("min_y per env", y_mins_np)
             print("dist between two smallest y vals", smallest_vals_dists)
             print("y_std", y_stds_np)
+            print("num opts", num_opts)
+            df = pd.DataFrame({"y": reference_y, "workload": workloads})
+            g = sns.FacetGrid(df, col="workload", sharex=False, col_wrap=3)
+            g.map(sns.histplot, "y", kde=True)
+            plt.show()
         with numpyro.plate("workloads", n_workloads):
             base = numpyro.sample(
                 "base",
-                # npdist.Exponential(
-                #     1 / (y_mins_np * 2),
+                # npdist.HalfCauchy(
+                #     1 / y_means,
                 # ),
                 # "base",
                 # npdist.Laplace(
                 #     y_mins_np,
                 #     y_stds_np,
                 # ),
-                npdist.TruncatedNormal(y_means, y_stds_np, low=0.0),
+                npdist.TruncatedNormal(y_means_np - y_stds_np, y_stds_np, low=0.0),
+                # npdist.Exponential(y_mins_np),
             )
-        with numpyro.plate("workloads", n_workloads):
-            variance = numpyro.sample(
-                "variance-influences",
-                # npdist.Exponential(
-                #     1 / (y_stds_np * 2),
-                # ),
-                npdist.TruncatedNormal(y_stds_np, y_stds_np, low=0.0),
-            )
+        # with numpyro.plate("workloads", n_workloads):
+        #     variance = numpyro.sample(
+        #         "variance",
+        #         # npdist.HalfCauchy(
+        #         #     1 / y_stds_np,
+        #         # ),
+        #         npdist.TruncatedNormal(y_stds_np, y_stds_np / 50, low=0.0),
+        #     )
 
-            # std_std = numpyro.sample("standardization_std", npdist.Exponential(base_order_of_magnitude_std))
+        # std_std = numpyro.sample("standardization_std", npdist.Exponential(base_order_of_magnitude_std))
 
         #### HYPERIORS ####
         # if not self.printed_priors:
@@ -919,16 +930,17 @@ class MCMCPartialBaseDiff(MCMCMultilevelPartial):
         #     )
 
         #### RELATIVE INFLUENCES ####
-        with numpyro.plate("options", num_opts):
-            with numpyro.plate("workloads", n_workloads):
-                rnd_influences = numpyro.sample(
-                    "relative-influences",
-                    npdist.Laplace(0, 1.0),
-                )
-
-        rnd_influences_absolute = numpyro.deterministic(
-            "influences", rnd_influences * variance[:, jnp.newaxis]
-        )
+        # with numpyro.plate("options", num_opts):
+        #     with numpyro.plate("workloads", n_workloads):
+        #         rnd_influences = numpyro.sample(
+        #             "relative-influences",
+        #             npdist.Laplace(0, 0.1),
+        #         )
+        #
+        # rnd_influences_absolute = numpyro.deterministic(
+        #     "influences",
+        #     rnd_influences * variance[:, jnp.newaxis],
+        # )
 
         # with numpyro.plate("options", num_opts):
         #     hyper_coef_means = numpyro.sample(
@@ -943,28 +955,41 @@ class MCMCPartialBaseDiff(MCMCMultilevelPartial):
         #         ),  # coefs_hyperior_expected_np),
         #     )
 
-        #### EXTRA ABS INFLUENCES ###
-        # with numpyro.plate("options", num_opts):
-        #     with numpyro.plate("workloads", n_workloads):
-        #         extra_abs_influences = numpyro.sample(
-        #             "influences",
-        #             npdist.Laplace(0, y_stds_np),
-        #         )
+        ### EXTRA ABS INFLUENCES ###
+        with numpyro.plate("options", num_opts):
+            with numpyro.plate("workloads", n_workloads):
+                extra_abs_influences = numpyro.sample(
+                    "influences-const",
+                    npdist.Laplace(
+                        0,
+                        # 1 / np.sqrt(2),
+                        jnp.repeat(
+                            y_stds_np[:, jnp.newaxis] / np.sqrt(2), num_opts, axis=1
+                        ),
+                    ),
+                )
 
         # multiplication checks out, try with 5 options and 4 WL: np.arange(5*4).reshape(4,5)* np.arange(1,5)[:, np.newaxis]
         with numpyro.plate("workloads", n_workloads):
-            error_var = numpyro.sample("error", npdist.Exponential(1 / 1.0))
+            error_var = numpyro.sample(
+                # "error", npdist.Exponential(1 / 1)
+                "error",
+                # npdist.Exponential(1 / 1),
+                npdist.Exponential(1 / y_stds_np),
+            )  # y_stds_np))
 
-        scaled_error = error_var * variance
+        scaled_error = error_var  # * variance
         right_error = scaled_error[workloads]
-        # respective_influences = rnd_influences_absolute[workloads]
-        respective_abs_influences = rnd_influences_absolute[workloads]
+        respective_influences = extra_abs_influences[workloads]
+        # respective_abs_influences = rnd_influences_absolute[workloads]
         respective_bases = base[workloads]
         # result_arr = jnp.multiply(data, respective_influences)
-        result_arr_extra_absolute = jnp.multiply(data, respective_abs_influences)
+        # result_arr_extra_absolute = jnp.multiply(data, respective_abs_influences)
+        result_arr_const = jnp.multiply(data, respective_influences)
         result_arr = (
             # result_arr.sum(axis=1).ravel() +
-            result_arr_extra_absolute.sum(axis=1).ravel()
+            # result_arr_extra_absolute.sum(axis=1).ravel()
+            +result_arr_const.sum(axis=1).ravel()
             + respective_bases
         )
 

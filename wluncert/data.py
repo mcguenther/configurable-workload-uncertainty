@@ -674,8 +674,9 @@ class Preprocessing(ABC):
 
 
 class Standardizer(Preprocessing):
-    def __init__(self):
+    def __init__(self, standardize_y=True):
         self.standandizer_map = {}
+        self.standardize_y = standardize_y
 
     def transform(self, env_data: List[SingleEnvData]):
         new_env_data_list = []
@@ -691,10 +692,11 @@ class Standardizer(Preprocessing):
         std_X = std_mapper_X.transform(X)
         df_X = pd.DataFrame(std_X, columns=env_data.get_feature_names())
         y = copy.deepcopy(env_data.get_all_y())
-        for nfp_name, std_scaler in std_mappers_y.items():
-            nfp_vals = pd.DataFrame(y[nfp_name], columns=[nfp_name])
-            scaled_nfp_vals = std_scaler.transform(nfp_vals)
-            y[nfp_name] = scaled_nfp_vals
+        if self.standardize_y:
+            for nfp_name, std_scaler in std_mappers_y.items():
+                nfp_vals = pd.DataFrame(y[nfp_name], columns=[nfp_name])
+                scaled_nfp_vals = std_scaler.transform(nfp_vals)
+                y[nfp_name] = scaled_nfp_vals
         new_data = copy.deepcopy(env_data)
         new_data.set_X(df_X)
         new_data.set_y(y)
@@ -726,11 +728,15 @@ class Standardizer(Preprocessing):
             nfp_name = single_env_data.get_selected_nfp_name()
             scaler = std_mappers_y[nfp_name]
             # y_df = pd.DataFrame(ys, columns=[nfp_name])
-            if len(np.array(ys).shape) == 1:
-                new_ys = scaler.inverse_transform(np.atleast_2d(ys)).ravel()
+            if self.standardize_y:
+                if len(np.array(ys).shape) == 1:
+                    new_ys = scaler.inverse_transform(np.atleast_2d(ys)).ravel()
+                else:
+                    new_ys = scaler.inverse_transform(ys)
+                new_y_list.append(new_ys)
             else:
-                new_ys = scaler.inverse_transform(ys)
-            new_y_list.append(new_ys)
+                new_y_list.append(ys)
+
         return new_y_list
 
 

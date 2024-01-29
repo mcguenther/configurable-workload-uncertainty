@@ -135,16 +135,16 @@ def main():
             # 0.125,
             # 0.25,
             # 0.5,
-            0.75,
+            # 0.75,
             # 0.9,
             # 1,
             # 1.1,
             # 1.25,
-            # 1.5,
+            1.5,
             # 1.75,
             # 2,
             # 3.0,
-            # 4,
+            # 10,
         )
 
         rnds = list(range(1))
@@ -378,6 +378,9 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
         plot=plot,
         **mcmc_kwargs,
         return_samples_by_default=True,
+        preprocessings=[
+            Standardizer(standardize_y=False),
+        ],
         persist_arviz=do_store,
     )
 
