@@ -102,9 +102,36 @@ class SingleEnvData:
         return nfp_name
 
     def get_split(
-        self, n_train_samples_abs=None, n_train_samples_rel_opt_num=None, rnd=0
+        self,
+        n_train_samples_abs=None,
+        n_train_samples_rel_opt_num=None,
+        rnd=0,
+        n_test_samples_rel_opt_num=None,
     ):
         n_opts = self.get_n_options()
+        absolute_train_size = self.map_real_to_abs_number(
+            n_opts, n_train_samples_abs, n_train_samples_rel_opt_num
+        )
+        # print("Splitting train set with abs samples of", absolute_train_size)
+        # absolute_train_size = min(absolute_train_size, len(self.df))
+        df_train, df_test = train_test_split(
+            self.df, train_size=absolute_train_size, random_state=rnd
+        )
+        if n_test_samples_rel_opt_num:
+            absolute_test_size = self.map_real_to_abs_number(
+                n_opts, None, n_test_samples_rel_opt_num
+            )
+            _, df_test = train_test_split(
+                self.df, train_size=absolute_test_size, random_state=rnd
+            )
+        train_data = SingleEnvData(df_train, self.env_col_name, self.nfps)
+        test_data = SingleEnvData(df_test, self.env_col_name, self.nfps)
+
+        return SingleEnvDataTrainTestSplit(train_data, test_data)
+
+    def map_real_to_abs_number(
+        self, n_opts, n_train_samples_abs, n_train_samples_rel_opt_num
+    ):
         absolute_train_size = (
             n_train_samples_abs
             if n_train_samples_rel_opt_num is None
@@ -112,14 +139,7 @@ class SingleEnvData:
         )
         absolute_train_size = int(absolute_train_size)
         absolute_train_size = max(absolute_train_size, 1)
-        # print("Splitting train set with abs samples of", absolute_train_size)
-        # absolute_train_size = min(absolute_train_size, len(self.df))
-        df_train, df_test = train_test_split(
-            self.df, train_size=absolute_train_size, random_state=rnd
-        )
-        train_data = SingleEnvData(df_train, self.env_col_name, self.nfps)
-        test_data = SingleEnvData(df_test, self.env_col_name, self.nfps)
-        return SingleEnvDataTrainTestSplit(train_data, test_data)
+        return absolute_train_size
 
     # def normalize(self, other_normalized=None):
     #     """

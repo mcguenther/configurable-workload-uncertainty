@@ -48,6 +48,7 @@ def replace_strings(filtered_df):
         "-robust": "",
         "cpooling-": "",
         "-1model": "",
+        "dummy": "mean-pred",
     }
 
     filtered_df["params.model"] = filtered_df["params.model"].replace(
@@ -95,7 +96,7 @@ def main():
             selected_subfolders = st.multiselect(
                 "Select Subfolders",
                 folder_names,
-                default=["240125-06-13-19-aggregation-JQTJ8kovA9"],
+                default=["240213-05-15-21-aggregation-ByjhWWTHHj"],
             )
 
             if (
@@ -127,9 +128,9 @@ def main():
         with col1:
             defaut_metrics = [
                 "mape",
-                "mape_ci",
-                "relative_DOF",
-                "test_set_log-likelihood",
+                # "mape_ci",
+                # "relative_DOF",
+                # "test_set_log-likelihood",
             ]
             score_columns = st.multiselect(
                 "Select Score Columns", metrics, default=defaut_metrics
@@ -137,9 +138,8 @@ def main():
             if not score_columns:
                 score_columns = metrics
         with col2:
-            systems = st.multiselect(
-                "Select Systems", all_systems, default=all_systems[:2]
-            )
+            common_sys = [s for s in all_systems if s not in ["H2", "kanzi"]]
+            systems = st.multiselect("Select Systems", all_systems, default=common_sys)
             if not systems:
                 systems = all_systems
 
@@ -216,7 +216,7 @@ def main():
             filtered_df = filtered_df.drop("Picked", axis=1)
 
             y_lim_max_mape = st.select_slider(
-                "Y Limit for MAPEs", [50, 100, 150, 200, 250, 300, 350], value=150
+                "Y Limit for MAPEs", [50, 100, 150, 200, 250, 300, 350, 400], value=300
             )
 
         sns.set_context("talk")
@@ -324,6 +324,8 @@ def main():
                     # ax.set_yscale('log')
                 if "test_set_log" in lower_title or "test_set_log" in sup_title:
                     ax.set_yscale("symlog")
+                    y_min, _ = ax.get_ylim()
+                    ax.set_ylim(y_min, 0)
                 new_title = title
                 new_title = new_title.replace("params.software-system = ", "")
                 new_title = new_title.replace("Metric = ", "")

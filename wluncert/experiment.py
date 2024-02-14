@@ -1,4 +1,5 @@
 import copy
+import itertools
 import os.path
 import random
 import time
@@ -107,14 +108,26 @@ class ExperimentTransfer(ExperimentTask):
 
     def __init__(self, *args, transfer_budgets=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.models = {idx: self.model for idx in range(len(self.train_list))}
-        self.transfer_budgets = transfer_budgets or [0.0, 0.125, 0.25, 0.375, 0.5, 1.0]
+        self.models = {
+            idx: copy.deepcopy(self.model) for idx in range(len(self.train_list))
+        }
+        self.transfer_sample_budgets = [
+            3,
+            5,
+        ]  # transfer_budgets or [0.0, 0.125, 0.25, 0.375, 0.5, 1.0]
+        self.transfer_known_workloads = [
+            1,
+            2,
+            3,
+            5,
+        ]
+        self.eval_permutation_num_cap = 3
 
     def run(self, return_predictions=False):
         base_log_dict = self.get_metadata_dict()
         type_dict = {"experiment-type": self.label}
         log_dict = {
-            "transfer_budgets": self.transfer_budgets,
+            "transfer_budgets": self.transfer_sample_budgets,
             **type_dict,
         }
         log_dict = {**log_dict, **base_log_dict}
@@ -122,6 +135,19 @@ class ExperimentTransfer(ExperimentTask):
 
         loo_wise_predictions = {}
         loo_wise_standardized_test_sets = {}
+        n_envs = len(self.train_list)
+        env_ids = list(range(n_envs))
+        for loo_source_envs_budget in self.transfer_known_workloads:
+            training_env_sets = itertools.combinations(env_ids, loo_source_envs_budget)
+            if self.eval_permutation_num_cap:
+                training_env_sets = random.sample(
+                    training_env_sets, self.eval_permutation_num_cap
+                )
+            for env_set in training_env_sets:
+                rem_envs = [e for e in env_ids if e not in env_set]
+
+            pass
+
         for loo_idx in range(len(self.train_list)):
             name = f"loo-{loo_idx}"
             print(f"Dealing with loo index {loo_idx}")
@@ -137,7 +163,7 @@ class ExperimentTransfer(ExperimentTask):
                 abs_train_sizes = self.get_transfer_train_set_sizes(
                     single_env_train_data,
                     min_train_size_abs=3,
-                    relative_steps=self.transfer_budgets,
+                    relative_steps=self.transfer_sample_budgets,
                 )
                 sub_train_sets, standardized_test_sets = self.get_transfer_train_sets(
                     single_env_train_data,
@@ -204,10 +230,11 @@ class ExperimentTransfer(ExperimentTask):
         self,
         single_env_train_data: SingleEnvData,
         min_train_size_abs: int,
-        relative_steps: List[float],
+        relative_steps: List[float] = None,
+        absolute_steps: List[float] = None,
     ):
         max_size = single_env_train_data.get_len()
-        absolute_steps = [int(i * max_size) for i in relative_steps]
+        absolute_steps = absolute_steps or [int(i * max_size) for i in relative_steps]
         final_sizes = []
         for step in absolute_steps:
             if step < min_train_size_abs:  # and min_train_size_abs not in final_sizes:
@@ -332,29 +359,38 @@ class Replication:
         # mlflow.end_run()
 
         tasks = {key: [] for key in self.experiment_classes}
-        transfer_tasks = []
         for model_lbl, model_proto in self.models.items():
             for data_lbl, data_set in self.data_providers.items():
-                model_proto_for_env = copy.deepcopy(model_proto)
-                model_proto_for_env.set_envs(data_set)
+                max_train_size = max(self.train_sizes_relative_to_option_number)
                 for train_size in self.train_sizes_relative_to_option_number:
                     for rnd in self.rnds:
-
                         data_per_env: List[
                             SingleEnvData
                         ] = data_set.get_workloads_data()
                         train_list = []
                         test_list = []
-                        for env_data in data_per_env:
+
+                        rng = np.random.default_rng(rnd)
+                        seeds = [
+                            rng.integers(0, 2**30, dtype=np.uint32)
+                            for r in range(len(data_per_env))
+                        ]
+                        for i, env_data in zip(seeds, data_per_env):
+                            # new_seed_for_env = rng.integers(0, 2**30, dtype=np.uint32)
+                            new_seed_for_env = i
                             split = env_data.get_split(
-                                rnd=rnd, n_train_samples_rel_opt_num=train_size
+                                rnd=new_seed_for_env,
+                                n_train_samples_rel_opt_num=train_size,
+                                n_test_samples_rel_opt_num=max_train_size,
                             )
                             train_data = split.train_data
                             train_list.append(train_data)
                             test_list.append(env_data)
                         abs_train_size = len(train_list[0])
-                        pooling_cat = model_proto_for_env.get_pooling_cat()
                         for task_class in self.experiment_classes:
+                            model_proto_for_env = copy.deepcopy(model_proto)
+                            model_proto_for_env.set_envs(data_set)
+                            pooling_cat = model_proto_for_env.get_pooling_cat()
                             new_task = task_class(
                                 model_lbl,
                                 model_proto_for_env,

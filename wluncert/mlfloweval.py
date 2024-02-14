@@ -76,8 +76,10 @@ class MultitaskPlotter(Plotter):
         )
         # setting boundaries that make sense
         plt.tight_layout()
+
         for ax in plt.gcf().axes:
             title = ax.get_title()
+            lower_title = str(title).lower()
             if "R2" in title:
                 ax.set_ylim(-1, 1)
                 print("set R2 ylims")
@@ -90,6 +92,8 @@ class MultitaskPlotter(Plotter):
                 print("new y limits", y_min, y_max)
                 # ax.set_yscale('log')
 
+            if "test_set_log" in lower_title:
+                ax.set_yscale("symlog")
         # plt.suptitle("Absolute training size")
         self.log_figure("abs-training-size")
         plt.show()
@@ -183,7 +187,7 @@ class Evaluation:
     def plot_metadata(self, meta_df=None):
         kwargs = {"run_id": self.run_id} if self.run_id else {"run_name": self.run_name}
         with mlflow.start_run(
-                **kwargs  # self.experiment_name.replace(" ", ""),
+            **kwargs  # self.experiment_name.replace(" ", ""),
         ) as run:
             print("start plotting metadata")
             meta_df = meta_df or self.meta_df
@@ -230,7 +234,7 @@ class Evaluation:
         mlflow.set_experiment(experiment_name=RESULTS_EXP)
         # mlflow.set_experiment(experiment_name=self.experiment_name)
         with mlflow.start_run(
-                run_name=self.run_name  # self.experiment_name.replace(" ", ""),
+            run_name=self.run_name  # self.experiment_name.replace(" ", ""),
         ) as run:
             self.run_id = run.info.run_id
             # Initialize an empty list to store the data
@@ -359,7 +363,6 @@ class Evaluation:
     #     )
 
     def download_netcdf(self, child_run):
-
         # MLflow Client initialisieren
         client = mlflow.tracking.MlflowClient()
 
@@ -560,9 +563,13 @@ def main():
     # parent_run_id = "5fbb9d52019a42fba015a4b840ec2b2d"
     # parent_run_id = "26fcff0b056e4ba5b262c28ef47dc4f9"
     parent_run_id = "231219-16-04-08-uncertainty-learning-2023-EDnxMVNhCg"
-    parent_run_id = "231220-10-53-08-uncertainty-learning-2023-JEsu9PFWxJ" # multitask
-    parent_run_id = "231220-14-06-10-uncertainty-learning-2023-aqSe3L6nWD" # transfer mini
-    parent_run_id = "231220-21-59-44-uncertainty-learning-2023-2yWWUcd6GN" # transfer gigantic
+    parent_run_id = "231220-10-53-08-uncertainty-learning-2023-JEsu9PFWxJ"  # multitask
+    parent_run_id = (
+        "231220-14-06-10-uncertainty-learning-2023-aqSe3L6nWD"  # transfer mini
+    )
+    parent_run_id = (
+        "231220-21-59-44-uncertainty-learning-2023-2yWWUcd6GN"  # transfer gigantic
+    )
     from experiment import EXPERIMENT_NAME
 
     # al = get_fitting_evaluator(

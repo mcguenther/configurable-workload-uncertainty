@@ -26,6 +26,7 @@ class ModelEvaluation:
         self.eval_mape = False
         self.eval_mape_ci = False
         self.eval_R2 = False
+        self.custom_pred_eval = None
         self.model_wise_dict = {}
 
     def get_test_list(self):
@@ -48,7 +49,7 @@ class ModelEvaluation:
             predictions, y_true
         )
         return (
-                mean_absolute_percentage_error(flattened_y_true, reshaped_predictions) * 100
+            mean_absolute_percentage_error(flattened_y_true, reshaped_predictions) * 100
         )
 
     @classmethod
@@ -87,6 +88,9 @@ class ModelEvaluation:
     def add_mape(self):
         self.eval_mape = True
 
+    def add_custom_pred_eval(self, custom_pred_eval):
+        self.custom_pred_eval = custom_pred_eval
+
     def add_R2(self):
         self.eval_R2 = True
 
@@ -104,7 +108,7 @@ class ModelEvaluation:
         merged_y_true = []
         merged_predictions = []
         merged_predictions_samples = []
-
+        y_true_env_list = []
         col_names = ["err_type", "env", "err"]
         tups = []
         err_type_mape = "mape"
@@ -114,6 +118,7 @@ class ModelEvaluation:
         for i, (test_set, y_pred) in enumerate(zip(self.test_list, self.predictions)):
             y_true = test_set.get_y()
             merged_y_true.extend(y_true)
+            y_true_env_list.append(y_true)
             env_id = test_set.env_id
             # pred_has_samples = len(y_pred.shape) > 1 and y_pred.shape[1] > 1
             if pred_has_samples:
@@ -131,6 +136,12 @@ class ModelEvaluation:
             if self.eval_R2:
                 r2 = self.R2(y_true, y_pred)
                 tups.append((err_type_r2, env_id, r2))
+
+        if self.custom_pred_eval is not None:
+            self.custom_pred_eval(
+                y_true_env_list,
+                self.predictions_samples,
+            )
         if pred_has_samples and self.eval_mape_ci:
             merged_err_mape_ci = self.mape_ci(
                 np.atleast_1d(merged_y_true).T,

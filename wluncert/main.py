@@ -1,5 +1,6 @@
 import numpyro
 from analysis import Analysis
+import matplotlib
 
 # must be run before any JAX imports
 numpyro.set_host_device_count(50)
@@ -44,8 +45,10 @@ from models import (
     MCMCPartialRobustLasso,
     MCMCPartialHorseshoe,
     MCMCCombinedCompletePooling,
-    MCMCPartialBaseDiff,
+    MCMCPartialSelfStandardizing,
     MCMCPartialRobustLassoAdaptiveShrinkage,
+    MCMCPartialSelfStandardizingConstInfl,
+    MCMCRHS,
 )
 import mlfloweval
 
@@ -93,14 +96,18 @@ def main():
         chosen_model_lbls.extend(["no-pooling-dummy"])
         # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
         # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
 
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-pw"])
-        chosen_model_lbls.extend(["partial-pooling-mcmc-diff"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-selfstd"])
+        chosen_model_lbls.extend(["mcmc-selfstd-const-hyper"])
 
         # chosen_model_lbls.extend(["partial-pooling-mcmc-extra"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-RHS"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-RHS-pw"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-pw"])
         # chosen_model_lbls.extend(["no-pooling-lin-pw"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-extra-pw"])
@@ -109,7 +116,7 @@ def main():
         # chosen_model_lbls.extend(["partial-pooling-mcmc-extra-pw"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe-pw"])
-        # chosen_model_lbls.extend(["partial-pooling-mcmc-diff"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-selfstd"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-extra", "partial-pooling-mcmc-robust", "partial-pooling-mcmc-horseshoe"])
 
         # number of pairwise interactions > 10N for N>=22
@@ -132,32 +139,34 @@ def main():
         #     4,
         # )
         train_sizes = (
+            # 0.001,
             # 0.125,
             # 0.25,
             # 0.5,
             # 0.75,
             # 0.9,
-            # 1,
+            # 1.0,
             # 1.1,
             # 1.25,
             1.5,
             # 1.75,
             # 2,
             # 3.0,
-            # 10,
+            # 5,
         )
 
-        rnds = list(range(1))
+        n_reps = 1
+        rnds = list(range(n_reps))
 
         selected_data = (
             "jump3r",
             # "H2",
-            # "xz",
-            # "x264",
+            # "xz",  # bad results
+            # "x264",  # bad results
             # "batik",
             # "dconvert",
             # "kanzi",
-            # "lrzip",
+            # "lrzip",  # bad results
             # "z3",
             # "artificial",
             # "VP9",
@@ -168,12 +177,12 @@ def main():
         train_sizes = (
             0.125,
             0.25,
-            0.375,
+            # 0.375,
             0.5,
-            0.675,
+            # 0.675,
             0.75,
             # 0.9,
-            1,
+            1.0,
             # 1.1,
             1.25,
             1.5,
@@ -181,23 +190,25 @@ def main():
             2,
             # 2.5,
             3,
-            4,
+            # 4,
         )
-        rnds = list(range(5))
+
+        n_reps = 7
+        rnds = list(range(n_reps))
 
         selected_data = (
             "jump3r",
-            "H2",
             "xz",
             "x264",
+            # "lrzip",
+            # "z3",
+            # "artificial",
+            "VP9",
+            # "x265",
             # "batik",
             # "dconvert",
-            "kanzi",
-            "lrzip",
-            "z3",
-            "artificial",
-            "VP9",
-            "x265",
+            # "kanzi",
+            # "H2",
         )
         chosen_model_lbls = []
 
@@ -206,14 +217,21 @@ def main():
         chosen_model_lbls.extend(["cpooling-rf"])
         chosen_model_lbls.extend(["no-pooling-rf"])
         chosen_model_lbls.extend(["no-pooling-dummy"])
-        chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
-        chosen_model_lbls.extend(["cpooling-mcmc-1model"])
+        # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
+        # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
+
+        # chosen_model_lbls.extend(["mcmc-selfstd-const-hyper"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-RHS"])
+        chosen_model_lbls.extend(["partial-pooling-mcmc-RHS-pw"])
+
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
-        chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe-pw"])
 
     models = {k: v for k, v in models.items() if k in chosen_model_lbls}
 
-    print("Using systems", selected_data)
+    print("Using systems:", selected_data)
     print("With training set size N=", train_sizes)
     print(f"And rnd seeds", rnds)
     data_providers = get_datasets(dataset_lbls=selected_data)
@@ -248,12 +266,12 @@ def main():
 
 def get_all_models(debug, n_jobs, plot, do_store=False):
     if debug:
-        mcmc_num_warmup = 750
-        mcmc_num_samples = 500
+        mcmc_num_warmup = 500
+        mcmc_num_samples = 700
         mcmc_num_chains = 3
     else:
-        mcmc_num_warmup = 1000
-        mcmc_num_samples = 500
+        mcmc_num_warmup = 750
+        mcmc_num_samples = 750
         mcmc_num_chains = 3
     progress_bar = False if n_jobs else True
     mcmc_kwargs = {
@@ -353,6 +371,20 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
         preprocessings=[Standardizer()],
         persist_arviz=do_store,
     )
+    model_multilevel_partial_RHS = MCMCRHS(
+        plot=plot,
+        **mcmc_kwargs,
+        return_samples_by_default=True,
+        preprocessings=[Standardizer()],
+        persist_arviz=do_store,
+    )
+    model_multilevel_partial_RHS_pw = MCMCRHS(
+        plot=plot,
+        **mcmc_kwargs,
+        return_samples_by_default=True,
+        preprocessings=[PaiwiseOptionMapper(), Standardizer()],
+        persist_arviz=do_store,
+    )
     model_multilevel_partial_horseshoe_pw = MCMCPartialHorseshoe(
         plot=plot,
         **mcmc_kwargs,
@@ -374,7 +406,16 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
         preprocessings=[PaiwiseOptionMapper(), Standardizer()],
         persist_arviz=do_store,
     )
-    model_partial_diff = MCMCPartialBaseDiff(
+    model_partial_diff = MCMCPartialSelfStandardizing(
+        plot=plot,
+        **mcmc_kwargs,
+        return_samples_by_default=True,
+        preprocessings=[
+            Standardizer(standardize_y=False),
+        ],
+        persist_arviz=do_store,
+    )
+    model_selfstd_const = MCMCPartialSelfStandardizingConstInfl(
         plot=plot,
         **mcmc_kwargs,
         return_samples_by_default=True,
@@ -405,7 +446,10 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
         "cpooling-mcmc-1model-pw": model_complete_pooling_combined_pw,
         "partial-pooling-mcmc-horseshoe": model_multilevel_partial_horseshoe,
         "partial-pooling-mcmc-horseshoe-pw": model_multilevel_partial_horseshoe_pw,
-        "partial-pooling-mcmc-diff": model_partial_diff,
+        "partial-pooling-mcmc-selfstd": model_partial_diff,
+        "mcmc-selfstd-const-hyper": model_selfstd_const,
+        "partial-pooling-mcmc-RHS": model_multilevel_partial_RHS,
+        "partial-pooling-mcmc-RHS-pw": model_multilevel_partial_RHS_pw,
     }
     return models
 
@@ -471,7 +515,7 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
         x264_data_raw = DataLoaderDashboardData(path_x264)
         data_x264 = DataAdapterX264(x264_data_raw)
         x264_wl_data: WorkloadTrainingDataSet = data_x264.get_wl_data()
-        data_providers[lbl_jump_r] = x264_wl_data
+        data_providers[lbl_x264] = x264_wl_data
 
     if lbl_batik in dataset_lbls:
         path_batik = os.path.join(train_data_folder, "dashboard-resources/batik/")
