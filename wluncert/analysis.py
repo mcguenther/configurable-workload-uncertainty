@@ -34,12 +34,14 @@ class ModelEvaluation:
 
     def prepare_sample_modes(self):
         self.predictions_samples = self.predictions
-        for samples in self.predictions_samples:
-            if type(samples) == list:
-                print(samples)
-                print(self.predictions_samples)
+        # for samples in self.predictions_samples:
+        # if type(samples) == list:
+        #     print(samples)
+        #     print(self.predictions_samples)
         self.predictions = [
             NumPyroRegressor.get_mode_from_samples(samples.T)
+            if samples is not None and len(samples) > 0
+            else None
             for samples in self.predictions_samples
         ]
 
@@ -116,6 +118,8 @@ class ModelEvaluation:
         err_type_mape_ci = "mape_ci"
         pred_has_samples = self.predictions_samples is not None
         for i, (test_set, y_pred) in enumerate(zip(self.test_list, self.predictions)):
+            if test_set is None:
+                continue
             y_true = test_set.get_y()
             merged_y_true.extend(y_true)
             y_true_env_list.append(y_true)

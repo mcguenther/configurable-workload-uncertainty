@@ -48,7 +48,7 @@ PARTIAL_POOLING = "PARTIAL_POOLING"
 
 
 def mlflow_log_artifact(*args, **kwargs):
-    time.sleep(0.5)
+    time.sleep(0.25)
     return mlflow.log_artifact(*args, **kwargs)
 
 
@@ -110,6 +110,8 @@ class ExperimentationModelBase(ABC, BaseEstimator):
         y_list = []
         env_id_list = []
         for single_env_data in data:
+            if single_env_data is None:
+                continue
             env_id = single_env_data.env_id
             X = single_env_data.get_X()
             y = single_env_data.get_y()
@@ -129,9 +131,9 @@ class ExperimentationModelBase(ABC, BaseEstimator):
         jnp_envs = jnp.array(envs)
         return X, jnp_envs, y
 
-    def _internal_data_to_list(self, envs, ys):
+    def _internal_data_to_list(self, envs, ys, n_workloads):
         # env_ys = [[] for _ in np.unique(envs)]
-        env_ys = {env_id: [] for env_id in np.unique(envs)}
+        env_ys = {env_id: [] for env_id in range(n_workloads)}
 
         for env, y in zip(envs, ys):
             env_ys[int(env)].append(y)
@@ -184,6 +186,9 @@ class NumPyroRegressor(ExperimentationModelBase):
         self.plot = plot
         self.return_samples_by_default = return_samples_by_default
         self.persist_arviz = persist_arviz
+
+    def set_persist_arviz(self, b: bool):
+        self.persist_arviz = b
 
     @staticmethod
     def model(data):
@@ -420,6 +425,7 @@ class NumPyroRegressor(ExperimentationModelBase):
         return modes
 
     def persist_arviz_data(self):
+        print("saving now!")
         az_data = self.get_arviz_data()
         tmp_file = f"tmp/arviz_data-{uuid.uuid4()}.netcdf"
         az_data.to_netcdf(filename=tmp_file)
@@ -462,24 +468,27 @@ class NumPyroRegressor(ExperimentationModelBase):
 
         n_envs = len(data_transformed)
         for test_set in data_transformed:
-            y_obs = test_set.get_y()
-            X = self.get_jnp_array(test_set.get_X())
-            merged_y_true.extend(y_obs)
-            model = self.model
-            env_id = test_set.env_id
-            id_list = [env_id] * len(y_obs)
+            if test_set is None:
+                pass
+            else:
+                y_obs = test_set.get_y()
+                X = self.get_jnp_array(test_set.get_X())
+                merged_y_true.extend(y_obs)
+                model = self.model
+                env_id = test_set.env_id
+                id_list = [env_id] * len(y_obs)
 
-            ll_samples = numpyro.infer.util.log_likelihood(
-                model,
-                self.mcmc.get_samples(),
-                X,
-                jnp.array(id_list),
-                n_envs,
-                jnp.array(y_obs),
-                batch_ndims=1,
-            )
-            lls = ll_samples["observations"].mean(axis=0)
-            lls_for_wl.extend(lls)
+                ll_samples = numpyro.infer.util.log_likelihood(
+                    model,
+                    self.mcmc.get_samples(),
+                    X,
+                    jnp.array(id_list),
+                    n_envs,
+                    jnp.array(y_obs),
+                    batch_ndims=1,
+                )
+                lls = ll_samples["observations"].mean(axis=0)
+                lls_for_wl.extend(lls)
         # total likelihood of the data given the model and posteriors
         # TODO arviz, following vehtari et al, report the mean so we do the same for now to avoid vanishing probs
         ll = np.mean(lls_for_wl)
@@ -704,7 +713,10 @@ class MCMCMultilevelPartial(NumPyroRegressor):
             # unstandardized_preds.append(pred)
             # single_env_data = data[env_id]
             unstandardized_preds_dict[env_id].append(pred)
-        return_list = [np.array(unstandardized_preds_dict[d.env_id]) for d in data]
+        return_list = [
+            np.array(unstandardized_preds_dict[d.env_id]) if d is not None else None
+            for d in data
+        ]
         return return_list
 
     def save_plot(self, mcmc=None, loo=True, lbl=None):
@@ -770,7 +782,6 @@ class MCMCPartialRobustLasso(MCMCMultilevelPartial):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.model_id = "mcmc-partial-pooling-robust"
-        # print("2")
 
     def model(self, data, workloads, n_workloads, reference_y):
         num_opts = data.shape[1]
@@ -1770,11 +1781,14 @@ class NoPoolingEnvModel(ExperimentationModelBase):
     def _predict(self, data: List[SingleEnvData], *args, **kwargs):
         preds = []
         for single_env_data in data:
-            env_id = single_env_data.env_id
-            reg, train_data = self.get_env_model(env_id)
-            X = single_env_data.get_X()
-            pred = reg.predict(X)
-            preds.append(pred)
+            if single_env_data is None:
+                preds.append([])
+            else:
+                env_id = single_env_data.env_id
+                reg, train_data = self.get_env_model(env_id)
+                X = single_env_data.get_X()
+                pred = reg.predict(X)
+                preds.append(pred)
         return preds
 
     def get_pooling_cat(self):
@@ -1796,18 +1810,38 @@ class CompletePoolingEnvModel(ExperimentationModelBase):
         self.model_prototype = model_prototype
         self.pooled_model = copy.deepcopy(self.model_prototype)
 
+    def _get_first_valid_feature_names(self, data: List[SingleEnvData]) -> List[str]:
+        """
+        Iterate through the data list to find the first non-None SingleEnvData instance
+        and return its feature names.
+
+        Parameters:
+        - data: List[SingleEnvData], a list of SingleEnvData instances.
+
+        Returns:
+        - List[str]: The feature names from the first valid SingleEnvData instance.
+        """
+        for single_env_data in data:
+            if single_env_data is not None:
+                return single_env_data.get_feature_names()
+        # Consider raising an exception or handling the case where all items are None
+        raise ValueError("All SingleEnvData instances are None.")
+
     def _fit(self, data: List[SingleEnvData], *args, **kwargs):
         X, envs, y = self._internal_data_splitting(data)
-        feature_names = data[0].get_feature_names()
+
+        # Use the new method to get feature names from the first valid SingleEnvData instance
+        feature_names = self._get_first_valid_feature_names(data)
+
         df = pd.DataFrame(X, columns=feature_names)
         self.pooled_model.fit(df, y)
 
     def _predict(self, data: List[SingleEnvData], *args, **kwargs):
         X, envs, y = self._internal_data_splitting(data)
-        feature_names = data[0].get_feature_names()
+        feature_names = self._get_first_valid_feature_names(data)
         df = pd.DataFrame(X, columns=feature_names)
         preds = self.pooled_model.predict(df)
-        return_y_list = self._internal_data_to_list(envs, preds)
+        return_y_list = self._internal_data_to_list(envs, preds, n_workloads=len(data))
         return return_y_list
 
     def get_pooling_cat(self):

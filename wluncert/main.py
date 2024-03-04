@@ -83,7 +83,7 @@ def main():
     print("Preparing experiments", chosen_experiments)
 
     print("pwd", os.getcwd())
-
+    print("Storing arviz data?", do_store)
     models = get_all_models(debug, n_jobs, plot, do_store=do_store)
 
     rep_lbl = "full-run"
@@ -91,9 +91,12 @@ def main():
         chosen_model_lbls = []
         chosen_model_lbls.extend(["no-pooling-lin"])
         chosen_model_lbls.extend(["cpooling-lin"])
+        chosen_model_lbls.extend(["model_lasso_reg_cpool"])
+        chosen_model_lbls.extend(["model_lasso_reg_no_pool"])
         chosen_model_lbls.extend(["cpooling-rf"])
         chosen_model_lbls.extend(["no-pooling-rf"])
         chosen_model_lbls.extend(["no-pooling-dummy"])
+
         # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
         # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
@@ -102,7 +105,7 @@ def main():
 
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-pw"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-selfstd"])
-        chosen_model_lbls.extend(["mcmc-selfstd-const-hyper"])
+        # chosen_model_lbls.extend(["mcmc-selfstd-const-hyper"])
 
         # chosen_model_lbls.extend(["partial-pooling-mcmc-extra"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe"])
@@ -141,35 +144,35 @@ def main():
         train_sizes = (
             # 0.001,
             # 0.125,
-            # 0.25,
+            0.25,
             # 0.5,
             # 0.75,
             # 0.9,
             # 1.0,
             # 1.1,
             # 1.25,
-            1.5,
+            # 1.5,
             # 1.75,
             # 2,
             # 3.0,
             # 5,
         )
 
-        n_reps = 1
+        n_reps = 5
         rnds = list(range(n_reps))
 
         selected_data = (
             "jump3r",
-            # "H2",
+            "H2",
             # "xz",  # bad results
             # "x264",  # bad results
             # "batik",
             # "dconvert",
             # "kanzi",
-            # "lrzip",  # bad results
+            "lrzip",  # bad results
             # "z3",
             # "artificial",
-            # "VP9",
+            "VP9",
             # "x265",
         )
         rep_lbl = "debug-1modelvs partial"
@@ -193,17 +196,17 @@ def main():
             # 4,
         )
 
-        n_reps = 7
+        n_reps = 5
         rnds = list(range(n_reps))
 
         selected_data = (
             "jump3r",
-            "xz",
-            "x264",
+            # "xz",
+            # "x264",
             # "lrzip",
             # "z3",
             # "artificial",
-            "VP9",
+            # "VP9",
             # "x265",
             # "batik",
             # "dconvert",
@@ -217,15 +220,18 @@ def main():
         chosen_model_lbls.extend(["cpooling-rf"])
         chosen_model_lbls.extend(["no-pooling-rf"])
         chosen_model_lbls.extend(["no-pooling-dummy"])
-        # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
-        # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
+        chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
+        chosen_model_lbls.extend(["cpooling-mcmc-1model"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
 
-        # chosen_model_lbls.extend(["mcmc-selfstd-const-hyper"])
-        # chosen_model_lbls.extend(["partial-pooling-mcmc-RHS"])
-        chosen_model_lbls.extend(["partial-pooling-mcmc-RHS-pw"])
+        chosen_model_lbls.extend(["model_lasso_reg_cpool"])
+        chosen_model_lbls.extend(["model_lasso_reg_no_pool"])
 
-        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
+        # chosen_model_lbls.extend(["mcmc-selfstd-const-hyper"])
+        chosen_model_lbls.extend(["partial-pooling-mcmc-RHS"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-RHS-pw"])
+
+        chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe-pw"])
 
@@ -294,6 +300,14 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
 
     model_lin_reg_pw = NoPoolingEnvModel(
         lin_reg_proto, preprocessings=[PaiwiseOptionMapper(), Standardizer()]
+    )
+
+    lasso_proto = Lasso(random_state=0)
+    model_lasso_reg_no_pool = NoPoolingEnvModel(
+        lasso_proto, preprocessings=[Standardizer()]
+    )
+    model_lasso_reg_cpool = CompletePoolingEnvModel(
+        lasso_proto, preprocessings=[Standardizer()]
     )
 
     # model_lin_reg_poly = Poly
@@ -450,6 +464,8 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
         "mcmc-selfstd-const-hyper": model_selfstd_const,
         "partial-pooling-mcmc-RHS": model_multilevel_partial_RHS,
         "partial-pooling-mcmc-RHS-pw": model_multilevel_partial_RHS_pw,
+        "model_lasso_reg_cpool": model_lasso_reg_cpool,
+        "model_lasso_reg_no_pool": model_lasso_reg_no_pool,
     }
     return models
 

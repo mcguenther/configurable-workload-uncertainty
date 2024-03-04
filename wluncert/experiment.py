@@ -108,20 +108,18 @@ class ExperimentTransfer(ExperimentTask):
 
     def __init__(self, *args, transfer_budgets=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.models = {
-            idx: copy.deepcopy(self.model) for idx in range(len(self.train_list))
-        }
         self.transfer_sample_budgets = [
             3,
             5,
         ]  # transfer_budgets or [0.0, 0.125, 0.25, 0.375, 0.5, 1.0]
+        # we have as low as 6 workloads per system. hence, to stay comparable, we use up to 5 workloads as source workloads
         self.transfer_known_workloads = [
             1,
             2,
             3,
             5,
         ]
-        self.eval_permutation_num_cap = 3
+        self.eval_permutation_num_cap = None  # 5
 
     def run(self, return_predictions=False):
         base_log_dict = self.get_metadata_dict()
@@ -137,81 +135,87 @@ class ExperimentTransfer(ExperimentTask):
         loo_wise_standardized_test_sets = {}
         n_envs = len(self.train_list)
         env_ids = list(range(n_envs))
-        for loo_source_envs_budget in self.transfer_known_workloads:
-            training_env_sets = itertools.combinations(env_ids, loo_source_envs_budget)
-            if self.eval_permutation_num_cap:
-                training_env_sets = random.sample(
-                    training_env_sets, self.eval_permutation_num_cap
+        for n_transfer_samples in self.transfer_sample_budgets:
+            any_train_data = self.train_list[0]
+            n_train_samples = len(any_train_data)
+            if n_train_samples <= n_transfer_samples:
+                print(
+                    f"skipping transfer budget {n_transfer_samples} because there are only {n_train_samples} total train samples!"
                 )
-            for env_set in training_env_sets:
-                rem_envs = [e for e in env_ids if e not in env_set]
-
-            pass
-
-        for loo_idx in range(len(self.train_list)):
-            name = f"loo-{loo_idx}"
-            print(f"Dealing with loo index {loo_idx}")
+                continue
+            name = f"n_transfer_samples-{n_transfer_samples}"
             with mlflow.start_run(nested=True, run_name=name):
                 mlflow_log_params(
                     {
-                        "loo_idx": loo_idx,
-                        **type_dict,
+                        "n_transfer_samples": n_transfer_samples,
                     }
                 )
-                single_env_test_data = self.test_list[loo_idx]
-                single_env_train_data = self.train_list[loo_idx]
-                abs_train_sizes = self.get_transfer_train_set_sizes(
-                    single_env_train_data,
-                    min_train_size_abs=3,
-                    relative_steps=self.transfer_sample_budgets,
-                )
-                sub_train_sets, standardized_test_sets = self.get_transfer_train_sets(
-                    single_env_train_data,
-                    single_env_test_data,
-                    abs_sizes=abs_train_sizes,
-                )
-
-                for train_subset, standardized_test_set in zip(
-                    sub_train_sets, standardized_test_sets
-                ):
-                    loo_budget = len(train_subset)
-                    with mlflow.start_run(
-                        nested=True, run_name=f"loo-budget={loo_budget}"
-                    ):
+                for loo_source_envs_budget in self.transfer_known_workloads:
+                    training_env_sets = list(
+                        itertools.combinations(env_ids, loo_source_envs_budget)
+                    )
+                    run_name = f"train-with-{loo_source_envs_budget}-source"
+                    with mlflow.start_run(nested=True, run_name=run_name):
                         mlflow_log_params(
                             {
-                                "loo_budget": loo_budget,
-                                **type_dict,
+                                "number_of_source_envs": loo_source_envs_budget,
                             }
                         )
-                        new_loo_train_list = []
-                        for i, (
-                            single_env_train_data,
-                            single_env_test_data,
-                        ) in enumerate(zip(self.train_list, self.test_list)):
-                            train_data = (
-                                single_env_train_data if i != loo_idx else train_subset
+                        if self.eval_permutation_num_cap:
+                            training_env_sets = random.sample(
+                                training_env_sets, self.eval_permutation_num_cap
                             )
-                            new_loo_train_list.append(train_data)
-                            # test_data = single_env_test_data if i != loo_idx else standardized_test_set
-                            # new_loo_test_list.append(test_data)
-                        loo_model = self.models[loo_idx]
-                        loo_model.fit(new_loo_train_list)
-                        predictions = loo_model.predict([standardized_test_set])
-                        loo_wise_predictions[loo_idx] = predictions
-                        loo_wise_standardized_test_sets[loo_idx] = standardized_test_set
-                        self.eval_single_model(
-                            predictions,
-                            [standardized_test_set],
-                        )
+                        for env_set in training_env_sets:
+                            rem_envs = [e for e in env_ids if e not in env_set]
+                            train_envs_str = "+".join(str(i) for i in env_set)
+                            name = f"train-{train_envs_str}"
+                            # print(f"Training on {train_envs_str}")
+                            with mlflow.start_run(nested=True, run_name=name):
+                                mlflow_log_params(
+                                    {
+                                        "source_envs": env_set,
+                                    }
+                                )
+                                new_loo_train_list = []
+                                new_loo_test_list = []
+                                for i, (
+                                    single_env_train_data,
+                                    single_env_test_data,
+                                ) in enumerate(zip(self.train_list, self.test_list)):
+                                    # Determine train and test data based on whether the current environment is in the env_set
+                                    if i in env_set:
+                                        # Use the entire dataset for training in environments included in env_set
+                                        env_train = single_env_train_data
+                                        env_test = None
+                                    else:
+                                        # For environments not in env_set, split the data into training and testing subsets
+                                        # use env id as rnd seed to get different transfer samples per env
+                                        split_data = single_env_train_data.get_split(
+                                            n_transfer_samples, rnd=i
+                                        )
+                                        env_train = split_data.train_data
+                                        env_test = single_env_test_data
 
-    def eval_single_model(self, predictions, test_list):
+                                    # Append the determined train and test data to their respective lists
+                                    new_loo_train_list.append(env_train)
+                                    new_loo_test_list.append(env_test)
+                                loo_model = copy.deepcopy(self.model)
+                                loo_model.fit(new_loo_train_list)
+                                predictions = loo_model.predict(new_loo_test_list)
+                                self.eval_single_model(
+                                    loo_model,
+                                    predictions,
+                                    new_loo_test_list,
+                                )
+
+    def eval_single_model(self, model, predictions, test_list):
         eval = ModelEvaluation(
             predictions,
             test_list,
         )
-        eval = self.model.evaluate(eval)
+        eval = model.evaluate(eval)
         df: pd.DataFrame = eval.get_scores()
+        return df
 
     def get_metadata_df(
         self,
@@ -255,7 +259,9 @@ class ExperimentTransfer(ExperimentTask):
             if t_size >= len(single_env_train_data):
                 train_set = single_env_train_data
             else:
-                train_set = single_env_train_data.get_split(t_size).train_data
+                train_set = single_env_train_data.get_split(
+                    t_size,
+                ).train_data
             # s = Standardizer()
             # train_data = s.fit_transform([train_set])[0]
             # test_data = s.transform([single_env_test_data])[0]

@@ -307,51 +307,54 @@ class Evaluation:
         # relative_transfer_budgets = json.loads(relative_transfer_budgets)
         env_runs = child_run.get_sub_runs()
         data_list = []
-        for env_run in env_runs:
+        for number_of_transfer_samples_env_run in env_runs:
+            lvl_2_params = number_of_transfer_samples_env_run.get_params()
             try:
-                lvl_2_params = env_run.get_params()
-                env_idx = lvl_2_params["params.loo_idx"]
-                print(f"getting budget runs for env idx {env_idx}")
-                # lvl_2_params = self.get_params_dict(env_run)
-                lvl_2_run_id = env_run.run_id
-                lvl_3_child_runs = env_run.get_sub_runs()
-                env_data = []
-                for transfer_budget_run in lvl_3_child_runs:
-                    lvl_3_params = transfer_budget_run.get_params()
-                    lvl_3_metrics = transfer_budget_run.get_metrics()
-                    joined_dict = {
-                        **lvl_1_params,
-                        **lvl_2_params,
-                        **lvl_3_params,
-                        **lvl_3_metrics,
-                    }
-                    az_data = transfer_budget_run.get_arviz_data()
-                    if az_data:
-                        joined_dict["az_data"] = az_data
-                    # Append data to the list
-                    env_data.append(joined_dict)
+                lvl_2_child_runs = number_of_transfer_samples_env_run.get_sub_runs()
+                for number_of_source_env_run in lvl_2_child_runs:
+                    lvl_3_params = number_of_source_env_run.get_params()
+                    # env_idx = lvl_2_params["params.loo_idx"]
+                    # print(f"getting budget runs for env idx {env_idx}")
+                    # lvl_2_params = self.get_params_dict(env_run)
+                    lvl_3_child_runs = number_of_source_env_run.get_sub_runs()
+                    # env_data = []
+                    for source_env_permutation_run in lvl_3_child_runs:
+                        lvl_4_params = source_env_permutation_run.get_params()
+                        lvl_4_metrics = source_env_permutation_run.get_metrics()
+                        joined_dict = {
+                            **lvl_1_params,
+                            **lvl_2_params,
+                            **lvl_3_params,
+                            **lvl_4_params,
+                            **lvl_4_metrics,
+                        }
+                        az_data = source_env_permutation_run.get_arviz_data()
+                        if az_data:
+                            joined_dict["az_data"] = az_data
+                        # Append data to the list
+                        data_list.append(joined_dict)
             except Exception as e:
                 tb = traceback.format_exc()
                 print("[LFlow]", e)
                 print(tb)
 
-            abs_transfer_budgets = [
-                int(run_dict["params.loo_budget"]) for run_dict in env_data
-            ]
-            unique_abs_budgets = list(np.unique(abs_transfer_budgets))
-            budget_map = {
-                absolute: relative
-                for absolute, relative in zip(
-                    sorted(unique_abs_budgets, reverse=True),
-                    sorted(relative_transfer_budgets, reverse=True),
-                )
-            }
-            for run_dict in env_data:
-                run_dict["params.loo_budget_rel"] = budget_map[
-                    int(run_dict["params.loo_budget"])
-                ]
-
-            data_list.extend(env_data)
+            # abs_transfer_budgets = [
+            #     int(run_dict["params.loo_budget"]) for run_dict in env_data
+            # ]
+            # unique_abs_budgets = list(np.unique(abs_transfer_budgets))
+            # budget_map = {
+            #     absolute: relative
+            #     for absolute, relative in zip(
+            #         sorted(unique_abs_budgets, reverse=True),
+            #         sorted(relative_transfer_budgets, reverse=True),
+            #     )
+            # }
+            # for run_dict in env_data:
+            #     run_dict["params.loo_budget_rel"] = budget_map[
+            #         int(run_dict["params.loo_budget"])
+            #     ]
+            #
+            # data_list.extend(env_data)
         return data_list
 
     # def get_sub_runs(self, parent_run_id):
@@ -567,8 +570,11 @@ def main():
     parent_run_id = (
         "231220-14-06-10-uncertainty-learning-2023-aqSe3L6nWD"  # transfer mini
     )
+    # parent_run_id = (
+    #     "231220-21-59-44-uncertainty-learning-2023-2yWWUcd6GN"  # transfer gigantic
+    # )
     parent_run_id = (
-        "231220-21-59-44-uncertainty-learning-2023-2yWWUcd6GN"  # transfer gigantic
+        "240228-17-59-03-uncertainty-learning-2024-fPjWZCZrCa"  # transfer gigantic
     )
     from experiment import EXPERIMENT_NAME
 

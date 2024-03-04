@@ -701,8 +701,11 @@ class Standardizer(Preprocessing):
     def transform(self, env_data: List[SingleEnvData]):
         new_env_data_list = []
         for single_env_data in env_data:
-            new_data = self.apply_standardizer_to_env_data(single_env_data)
-            new_env_data_list.append(new_data)
+            if single_env_data is None:
+                new_env_data_list.append(single_env_data)
+            else:
+                new_data = self.apply_standardizer_to_env_data(single_env_data)
+                new_env_data_list.append(new_data)
         return new_env_data_list
 
     def apply_standardizer_to_env_data(self, env_data: SingleEnvData):
@@ -743,20 +746,22 @@ class Standardizer(Preprocessing):
     def inverse_transform_pred(self, y_pred, env_data):
         new_y_list = []
         for ys, single_env_data in zip(y_pred, env_data):
-            env_id = single_env_data.env_id
-            std_mapper_X, std_mappers_y = self.standandizer_map[env_id]
-            nfp_name = single_env_data.get_selected_nfp_name()
-            scaler = std_mappers_y[nfp_name]
-            # y_df = pd.DataFrame(ys, columns=[nfp_name])
-            if self.standardize_y:
-                if len(np.array(ys).shape) == 1:
-                    new_ys = scaler.inverse_transform(np.atleast_2d(ys)).ravel()
-                else:
-                    new_ys = scaler.inverse_transform(ys)
-                new_y_list.append(new_ys)
+            if single_env_data is None:
+                new_y_list.append([])
             else:
-                new_y_list.append(ys)
-
+                env_id = single_env_data.env_id
+                std_mapper_X, std_mappers_y = self.standandizer_map[env_id]
+                nfp_name = single_env_data.get_selected_nfp_name()
+                scaler = std_mappers_y[nfp_name]
+                # y_df = pd.DataFrame(ys, columns=[nfp_name])
+                if self.standardize_y:
+                    if len(np.array(ys).shape) == 1:
+                        new_ys = scaler.inverse_transform(np.atleast_2d(ys)).ravel()
+                    else:
+                        new_ys = scaler.inverse_transform(ys)
+                    new_y_list.append(new_ys)
+                else:
+                    new_y_list.append(ys)
         return new_y_list
 
 
