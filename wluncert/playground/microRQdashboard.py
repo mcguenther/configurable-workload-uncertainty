@@ -10,6 +10,8 @@ import glob
 import matplotlib.pyplot as plt
 import time
 
+import streamlit.components.v1 as components
+import base64
 
 def get_subfolders(parent_folder):
     subfolders = [f.path for f in os.scandir(parent_folder) if f.is_dir()]
@@ -104,6 +106,28 @@ def filter_by_first_unique_value(df, col_name):
     return filtered_df
 
 
+
+def embed_pdf(file_path, width=700, height=700):
+    with open(file_path, "rb") as pdf_file:
+        base64_pdf = base64.b64encode(pdf_file.read()).decode('utf-8')
+
+    pdf_display = f"""
+    <style>
+    .pdf-container {{
+        width: 100%;
+        height: {height}px;
+    }}
+    iframe {{
+        width: 100%;
+        height: 100%;
+    }}
+    </style>
+    <div class="pdf-container">
+        <iframe src="data:application/pdf;base64,{base64_pdf}" type="application/pdf"></iframe>
+    </div>
+    """
+    components.html(pdf_display, height=height+200)
+
 def draw_transfer_dashboard(combined_df):
     sws_col = "params.subject_system"
     filtered_df, score_columns, systems, y_lim_max_mape = filter_result_df(
@@ -111,7 +135,11 @@ def draw_transfer_dashboard(combined_df):
     )
 
     sws_list = list(filtered_df[sws_col].unique())
-
+    sns.set_theme(
+        rc={
+            "figure.dpi": 200,
+        }
+    )
     for sws_lbl in sws_list:
         filtered_df = filter_by_first_unique_value(filtered_df, "Metric")
         metric = list(filtered_df["Metric"].unique())[0]
@@ -119,6 +147,7 @@ def draw_transfer_dashboard(combined_df):
 
         # st.dataframe(filtered_df)
 
+        st.write("## Result Plot")
         g = sns.relplot(
             data=sws_df,
             x="params.relative_train_size",
@@ -132,7 +161,7 @@ def draw_transfer_dashboard(combined_df):
             # linewidth=4,
             # zorder=5,
             # col_wrap=3,
-            height=8,
+            height=5,
             aspect=1.015,
             legend=True,
         )
@@ -159,8 +188,23 @@ def draw_transfer_dashboard(combined_df):
                 y_min, y_max = ax.get_ylim()
                 ax.set_ylim(0, min(y_max, y_lim_max_mape))
         plt.tight_layout()
+
+        sns.set_context("talk")  # Makes labels and lines larger
+        sns.set_style("whitegrid")  # Adds a grid for easier data visualization
+        # sns.set_theme(
+        #     rc={
+        #         "figure.dpi": 200,
+        #     }
+        # )
+        tmp_file = "streamlit-last-results.pdf"
+        plt.savefig(tmp_file, bbox_inches='tight')
         fig = plt.gcf()
-        st.pyplot(fig)
+        st.pyplot(
+            fig,
+        )
+
+        with st.expander(label="Get Your PDF Now COMPLETELY FREE!!!1!11!!", expanded=False):
+            embed_pdf(tmp_file)
 
 
 def main():
@@ -168,6 +212,7 @@ def main():
 
     config_ok = False
     with st.sidebar:
+        st.write("## Folder Selection")
         parent_folder = st.text_input(
             "Enter the path of the parent folder",
             value="/home/jdorn/results/localflow/jdorn-multilevel-eval/",
@@ -190,26 +235,58 @@ def main():
                     os.path.join(parent_folder, f) for f in selected_subfolders
                 ]
                 combined_df = read_and_combine_csv(whole_folders)
-                if combined_df.empty:
+                if combined_df is None or combined_df.empty:
                     st.error(
                         "No CSV files found in the selected subfolders or the combined DataFrame is empty."
                     )
                 else:
                     config_ok = True
-                combined_df = replace_strings(combined_df)
     if not config_ok:
-        "please check config in sidebar"
+        st.error("please check config in sidebar")
+        exit(21)
     else:
+        combined_df = replace_strings(combined_df)
         exp_types = combined_df["params.experiment-type"].unique()
         if len(exp_types) > 1:
             st.error("Not more than one experiment type supported!")
             exit(22)
         else:
+            total_pred_time_cost = int(combined_df["metrics.pred_time_cost"].sum())
+            total_fitting_time_cost = int(combined_df["metrics.fitting_time_cost"].sum())
+            total_preproc_fitting_time_cost = int(combined_df["metrics.preproc-fittin_time_cost"].sum())
+            total_preproc_pred_time_cost = int(combined_df["metrics.preproc-pred-_time_cost"].sum())
+            total_time = total_pred_time_cost + total_fitting_time_cost + total_preproc_fitting_time_cost + total_preproc_pred_time_cost
+
+
+            days, hours, minutes, seconds_remaining  = seconds_to_days(total_time)
+
+            st.write("## Time Cost in Compute Time")
+            col_days, col1, col2, col3 = st.columns(4)
+            with col_days:
+                st.metric("Experiment Days", f"{days}d")
+            with col1:
+                st.metric("Experiment Hours", f"{hours}h")
+            with col2:
+                st.metric("Experiment Minutes", f"{minutes}m")
+            with col3:
+                st.metric("Experiment Seconds", f"{seconds_remaining}s")
+
+
+
+            st.write("## Experiment Filters")
             exp_type = exp_types[0]
             if exp_type == "multitask":
                 draw_multitask_dashboard(combined_df)
             elif exp_type == "transfer":
                 draw_transfer_dashboard(combined_df)
+
+
+def seconds_to_days(seconds):
+    days = seconds // 86400
+    hours = (seconds % 86400) // 3600
+    minutes = (seconds % 3600) // 60
+    seconds_remaining = seconds % 60
+    return days, hours, minutes, seconds_remaining
 
 
 def draw_multitask_dashboard(combined_df):
