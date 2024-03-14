@@ -11,11 +11,13 @@ streamlit==1.30.0
 pyro-ppl
 numpyro[cpu]==0.12.1
 jax==0.4.14
+jaxlib==0.4.14
+shortuuid==1.0.13
 arviz
 bokeh
 absl-py
 pyarrow
-pycosa@git+https://github.com/smba/pycosa-toolbox@6a3632c448003347c203187dc94a15819ed46875
+pycosa@git+https://github.com/smba/pycosa-toolbox@6a3632c448003347c203187dc94a15819ed46875#egg=pycosa
 mlflow
 boto3
 black==23.7.0

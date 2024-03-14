@@ -16,7 +16,7 @@ import uuid
 from analysis import ModelEvaluation
 from data import SingleEnvData, Standardizer
 from utils import get_date_time_uuid
-
+import warnings
 
 # MLFLOW_URI = "http://172.26.92.43:5000"
 MLFLOW_USR = "jdorn"
@@ -110,22 +110,26 @@ class ExperimentTransfer(ExperimentTask):
         super().__init__(*args, **kwargs)
         self.transfer_sample_budgets = [
             3,
-            5,
         ]  # transfer_budgets or [0.0, 0.125, 0.25, 0.375, 0.5, 1.0]
+        self.relative_transfer_sample_budges = (0.1, 0.2)
         # we have as low as 6 workloads per system. hence, to stay comparable, we use up to 5 workloads as source workloads
         self.transfer_known_workloads = [
             1,
-            2,
             3,
             5,
         ]
-        self.eval_permutation_num_cap = None  # 5
+        self.eval_permutation_num_cap = 5
 
     def run(self, return_predictions=False):
         base_log_dict = self.get_metadata_dict()
         type_dict = {"experiment-type": self.label}
+        n_opts = base_log_dict["n_train_features"]
+        any_train_data = self.train_list[0]
+        n_train_samples = len(any_train_data)
+        calculated_abs_transfer_budgets = {rel:max(int(rel * n_train_samples), 1) for rel in self.relative_transfer_sample_budges}
         log_dict = {
-            "transfer_budgets": self.transfer_sample_budgets,
+            "absolute_transfer_budgets": self.transfer_sample_budgets,
+            "relateive_to_absolute_mapped_budgets": calculated_abs_transfer_budgets,
             **type_dict,
         }
         log_dict = {**log_dict, **base_log_dict}
@@ -135,9 +139,8 @@ class ExperimentTransfer(ExperimentTask):
         loo_wise_standardized_test_sets = {}
         n_envs = len(self.train_list)
         env_ids = list(range(n_envs))
-        for n_transfer_samples in self.transfer_sample_budgets:
-            any_train_data = self.train_list[0]
-            n_train_samples = len(any_train_data)
+        joint_abs_train_samples = sorted(list(set([*self.transfer_sample_budgets, *calculated_abs_transfer_budgets.values()])))
+        for n_transfer_samples in joint_abs_train_samples:
             if n_train_samples <= n_transfer_samples:
                 print(
                     f"skipping transfer budget {n_transfer_samples} because there are only {n_train_samples} total train samples!"
@@ -161,9 +164,14 @@ class ExperimentTransfer(ExperimentTask):
                                 "number_of_source_envs": loo_source_envs_budget,
                             }
                         )
-                        if self.eval_permutation_num_cap:
-                            training_env_sets = random.sample(
-                                training_env_sets, self.eval_permutation_num_cap
+                        if self.eval_permutation_num_cap and len(training_env_sets) > self.eval_permutation_num_cap:
+                            unique_seed = hash(
+                                (self.rnd, n_transfer_samples, loo_source_envs_budget)
+                            )
+                            rng = random.Random(unique_seed)
+                            training_env_sets = rng.sample(
+                                training_env_sets,
+                                self.eval_permutation_num_cap,
                             )
                         for env_set in training_env_sets:
                             rem_envs = [e for e in env_ids if e not in env_set]
@@ -414,10 +422,10 @@ class Replication:
         print("provisioned experiments", flush=True)
 
         random.seed(self.rnds[0])
-        results = {key: [] for key in tasks}
-        scores_list = []
-        metas_list = []
-        result_dict = {}
+        # results = {key: [] for key in tasks}
+        # scores_list = []
+        # metas_list = []
+        # result_dict = {}
         for task_type in tasks:
             random.shuffle(tasks[task_type])
             print(f"Planning {self.n_jobs} jobs")
@@ -449,4 +457,7 @@ class Replication:
             run_id=self.parent_run_id  # self.experiment_name.replace(" ", ""),
         ):
             with mlflow.start_run(run_name=run_name, nested=True):
-                task.run()
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", category=UserWarning)
+                    task.run()
+        del task

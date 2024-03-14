@@ -53,6 +53,17 @@ from models import (
 import mlfloweval
 
 
+def get_rep_ids(default_n_reps, custom_num_reps=None, rep_offset=0):
+    if custom_num_reps:
+        print("custom num_reps:", custom_num_reps)
+        print("custom rep_offset:", rep_offset)
+        rep_ids = list(range(rep_offset, custom_num_reps + rep_offset))
+    else:
+        rep_ids = list(range(default_n_reps))
+    print(f"Generated repetidion random seeds:", rep_ids)
+    return rep_ids
+
+
 def main():
     mlflow.set_tracking_uri(MLFLOW_URI)
 
@@ -63,6 +74,15 @@ def main():
     parser = argparse.ArgumentParser(description="Script description")
     parser.add_argument(
         "--jobs", type=int, default=None, help="Number of jobs for parallel mode"
+    )
+    parser.add_argument(
+        "--reps", type=int, default=None, help="Number of repetitions for experiment"
+    )
+    parser.add_argument(
+        "--rep-offset",
+        type=int,
+        default=0,
+        help="Offsets for the random number generation",
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("--plot", action="store_true", help="Enable debug mode")
@@ -79,6 +99,8 @@ def main():
     debug = args.debug
     plot = args.plot
     do_store = args.store
+    num_reps = args.reps
+    rep_offset = args.rep_offset
     chosen_experiments = [experiment_class_labels[e] for e in args.experiments]
     print("Preparing experiments", chosen_experiments)
 
@@ -159,7 +181,7 @@ def main():
         )
 
         n_reps = 5
-        rnds = list(range(n_reps))
+        rnds = get_rep_ids(n_reps, num_reps, rep_offset)
 
         selected_data = (
             "jump3r",
@@ -187,31 +209,31 @@ def main():
             # 0.9,
             1.0,
             # 1.1,
-            1.25,
+            # 1.25,
             1.5,
-            1.75,
+            # 1.75,
             2,
             # 2.5,
             3,
             # 4,
         )
 
-        n_reps = 5
-        rnds = list(range(n_reps))
+        default_n_reps = 3
+        rnds = get_rep_ids(default_n_reps, num_reps, rep_offset)
 
         selected_data = (
             "jump3r",
-            # "xz",
-            # "x264",
-            # "lrzip",
-            # "z3",
-            # "artificial",
-            # "VP9",
-            # "x265",
-            # "batik",
-            # "dconvert",
-            # "kanzi",
-            # "H2",
+            "xz",
+            "x264",
+            "lrzip",
+            "z3",
+            "artificial",
+            "VP9",
+            "x265",
+            "batik",
+            "dconvert",
+            "kanzi",
+            "H2",
         )
         chosen_model_lbls = []
 
@@ -228,7 +250,7 @@ def main():
         chosen_model_lbls.extend(["model_lasso_reg_no_pool"])
 
         # chosen_model_lbls.extend(["mcmc-selfstd-const-hyper"])
-        chosen_model_lbls.extend(["partial-pooling-mcmc-RHS"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-RHS"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-RHS-pw"])
 
         chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
@@ -276,8 +298,8 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
         mcmc_num_samples = 700
         mcmc_num_chains = 3
     else:
-        mcmc_num_warmup = 750
-        mcmc_num_samples = 750
+        mcmc_num_warmup = 1000
+        mcmc_num_samples = 1000
         mcmc_num_chains = 3
     progress_bar = False if n_jobs else True
     mcmc_kwargs = {

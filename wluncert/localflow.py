@@ -10,7 +10,6 @@ from contextlib import ContextDecorator
 from contextlib import contextmanager
 import json
 import traceback
-import shortid
 import shortuuid
 
 RESULT_ROOT = "/home/jdorn/results/localflow/"
