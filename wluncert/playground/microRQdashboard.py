@@ -9,6 +9,7 @@ import os
 import glob
 import matplotlib.pyplot as plt
 import time
+from fractions import Fraction
 
 import streamlit.components.v1 as components
 import base64
@@ -106,7 +107,6 @@ def filter_by_first_unique_value(df, col_name):
     return filtered_df
 
 
-
 def embed_pdf(file_path, width=700, height=700):
     with open(file_path, "rb") as pdf_file:
         base64_pdf = base64.b64encode(pdf_file.read()).decode('utf-8')
@@ -123,10 +123,10 @@ def embed_pdf(file_path, width=700, height=700):
     }}
     </style>
     <div class="pdf-container">
-        <iframe src="data:application/pdf;base64,{base64_pdf}" type="application/pdf"></iframe>
+        <iframe src="data:application/pdf;base64,{base64_pdf}" type="application/pdf"   ></iframe>
     </div>
     """
-    components.html(pdf_display, height=height+200)
+    components.html(pdf_display, height=height)
 
 def draw_transfer_dashboard(combined_df):
     sws_col = "params.subject_system"
@@ -140,75 +140,90 @@ def draw_transfer_dashboard(combined_df):
             "figure.dpi": 200,
         }
     )
-    for sws_lbl in sws_list:
-        filtered_df = filter_by_first_unique_value(filtered_df, "Metric")
-        metric = list(filtered_df["Metric"].unique())[0]
-        sws_df = filtered_df.loc[filtered_df[sws_col] == sws_lbl]
+    sns.set_context("talk")  # Makes labels and lines larger
+    sns.set_style("whitegrid")  # Adds a grid for easier data visualization
 
-        # st.dataframe(filtered_df)
+    # Create tabs
+    tabs = st.tabs(sws_list)
+    len(tabs)
+    # Iterate through each tab and build content
 
-        st.write("## Result Plot")
-        g = sns.relplot(
-            data=sws_df,
-            x="params.relative_train_size",
-            y="Value",
-            col="params.number_of_source_envs",
-            row="params.n_transfer_samples",
-            hue="params.model",
-            kind="line",
-            style="params.pooling_cat",
-            # palette="crest",
-            # linewidth=4,
-            # zorder=5,
-            # col_wrap=3,
-            height=5,
-            aspect=1.015,
-            legend=True,
-        )
-        suptitle = f"{sws_lbl}, {metric}"
-        plt.suptitle(suptitle)
+    # Iterate through each tab and build content
+    for tab, sws_lbl in zip(tabs, sws_list):
+        with tab:
+            filtered_df = filter_by_first_unique_value(filtered_df, "Metric")
+            metric = list(filtered_df["Metric"].unique())[0]
+            sws_df = filtered_df.loc[filtered_df[sws_col] == sws_lbl]
+            sws_df = sws_df.loc[sws_df["params.n_transfer_samples"] >= 3]
 
-        sns.move_legend(
-            g,
-            "center right",
-            bbox_to_anchor=(-0.005, 0.5),
-            # ncol=3,
-            # title=None,
-            frameon=True,
-            fancybox=True,
-        )
+            # st.dataframe(filtered_df)
 
-        for ax in plt.gcf().axes:
-            title = ax.get_title()
-            if "R2" in suptitle:
-                ax.set_ylim(-1, 1)
-                print("set R2 ylims")
-            # lower_title = str(title).lower()
-            if "mape" in suptitle:
-                y_min, y_max = ax.get_ylim()
-                ax.set_ylim(0, min(y_max, y_lim_max_mape))
-        plt.tight_layout()
+            st.write(f"## Results {sws_lbl}")
+            g = sns.relplot(
+                data=sws_df,
+                x="params.n_transfer_samples",
+                y="Value",
+                col="params.number_of_source_envs",
+                row="params.relative_train_size",
+                hue="params.model",
+                kind="line",
+                style="params.pooling_cat",
+                style_order=["complete", "partial", "no"],
+                # palette="crest",
+                # linewidth=4,
+                # zorder=5,
+                # col_wrap=3,
+                height=5,
+                aspect=1.015,
+                legend=True,
+            )
+            suptitle = f"{sws_lbl}, {metric}"
+            plt.suptitle(suptitle)
 
-        sns.set_context("talk")  # Makes labels and lines larger
-        sns.set_style("whitegrid")  # Adds a grid for easier data visualization
-        # sns.set_theme(
-        #     rc={
-        #         "figure.dpi": 200,
-        #     }
-        # )
-        tmp_file = "streamlit-last-results.pdf"
-        plt.savefig(tmp_file, bbox_inches='tight')
-        fig = plt.gcf()
-        st.pyplot(
-            fig,
-        )
+            sns.move_legend(
+                g,
+                "center right",
+                bbox_to_anchor=(-0.005, 0.5),
+                # ncol=3,
+                # title=None,
+                frameon=True,
+                fancybox=True,
+            )
 
-        with st.expander(label="Get Your PDF Now COMPLETELY FREE!!!1!11!!", expanded=False):
-            embed_pdf(tmp_file)
+            for ax in plt.gcf().axes:
+                title = ax.get_title()
+                if "R2" in suptitle:
+                    ax.set_ylim(-1, 1)
+                    print("set R2 ylims")
+                # lower_title = str(title).lower()
+                if "mape" in suptitle:
+                    y_min, y_max = ax.get_ylim()
+                    ax.set_ylim(0, min(y_max, y_lim_max_mape))
+            plt.tight_layout()
+
+            # sns.set_theme(
+            #     rc={
+            #         "figure.dpi": 200,
+            #     }
+            # )
+            tmp_file = "streamlit-last-results.pdf"
+            plt.savefig(tmp_file, bbox_inches='tight')
+            fig = plt.gcf()
+            st.pyplot(
+                fig,
+            )
+
+            with st.expander(label=f"{sws_lbl} PDF Now COMPLETELY FREE!!!1!11!!", expanded=False):
+                embed_pdf(tmp_file)
 
 
 def main():
-    st.title("CSV File Processor and Visualizer from Subfolders")
+    st.set_page_config(
+        page_title="MCMC Multilevel Models Dashboard",
+        page_icon="📊",  # Update path accordingly
+        layout="wide"
+    )
+    # st.title("CSV File Processor and Visualizer from Subfolders")
 
     config_ok = False
     with st.sidebar:
@@ -225,7 +240,10 @@ def main():
             selected_subfolders = st.multiselect(
                 "Select Subfolders",
                 folder_names,
-                default=["240214-08-28-44-aggregation-EjU8UAfn4w"],
+                default=["240316-20-16-41-aggregation-bWn627g4jN",
+                         "240317-14-51-05-aggregation-dNPobw6xky",
+                         "240318-14-27-26-aggregation-WLFgXnWyqc",
+                         "240319-11-56-40-aggregation-gn5W8tJhaY"],
             )
 
             if (
@@ -289,46 +307,303 @@ def seconds_to_days(seconds):
     return days, hours, minutes, seconds_remaining
 
 
+def convert_to_frac(value):
+
+    if value < 1:
+
+        denominator = 1 / value
+
+        return r'$\frac{1}{' + f'{int(denominator)}' + r'}$'
+
+    return str(int(value))
+
+
+def draw_multitask_paper_plot(combined_df,     system_col="params.software-system",
+    model_col="params.model",
+    cat_col="params.pooling_cat",):
+    # Start with known values
+    known_values = ["mcmc", "rf", "dummy"]
+
+    # st.write("Filter systems ...")
+    # filtered_df = combined_df[combined_df[system_col].isin(systems)]
+    st.write("Filter models ...")
+    wanted_models = {
+        "mcmc": "Bayesian",
+        "mean-pred": "Mean",
+        "mcmc-adaptive-shrinkage": "Bayesian",
+        "model_lasso_reg_no_pool": "Lasso",
+        "model_lasso_reg_cpool": "Lasso",
+    }
+    all_models = list(combined_df[model_col].unique())
+    #st.write(all_models)
+    filtered_df = combined_df[combined_df[model_col].isin(wanted_models)]
+    filtered_df["params.model"] = filtered_df["params.model"].map(wanted_models)
+
+    col_mapper = {
+        "mape":"MAPE",
+        "mape_ci":"$\\text{MAPE}_\\text{CI}$"
+
+    }
+    # filtered_df = filtered_df[filtered_df[cat_col].isin(s_poolings)]
+    st.write("Filter metrics ...")
+    metrics_raw = get_metrics_in_df(filtered_df)
+    melted_df = filtered_df.melt(
+        id_vars=[col for col in filtered_df.columns if col not in metrics_raw],
+        value_vars=metrics_raw,
+        var_name="Metric",
+        value_name="Value",
+    )
+    melted_df["Metric"] = melted_df["Metric"].str.replace("metrics.", "")
+
+
+    melted_df = melted_df.loc[melted_df["Metric"].isin(col_mapper)]
+    melted_df["Metric"] = melted_df["Metric"].replace(col_mapper)
+    #st.dataframe(melted_df)
+
+    pooling_cat_lbl = "Pooling"
+    relative_train_size_lbl = "Relative Train Size"
+    params_mapper = {
+        "params.model":"Model",
+        "params.software-system": "Subject System",
+        "params.relative_train_size": relative_train_size_lbl,
+        "params.pooling_cat": pooling_cat_lbl,
+    }
+
+    melted_df = melted_df.rename(columns=params_mapper)
+
+    st.dataframe(melted_df)
+
+    st.write("## Pivot Table")
+    mape_df = melted_df[['Subject System', 'Relative Train Size', 'Model', pooling_cat_lbl, "Metric", "Value"]]
+    grouped_mape = mape_df.groupby(['Subject System', 'Relative Train Size', 'Model', pooling_cat_lbl, "Metric",]).mean().reset_index()
+    st.dataframe(grouped_mape)
+    initial_pivot = grouped_mape.pivot_table(index=['Subject System'],
+                                     columns=['Model', pooling_cat_lbl, 'Metric', 'Relative Train Size'],
+                                     values='Value',
+                                     aggfunc='first')
+    st.dataframe(grouped_mape)
+    # Dropping columns where either MAPE or MAPE_CI is missing for any model-relative training size combination
+    columns_to_drop = [col for col in initial_pivot.columns if pd.isnull(initial_pivot[col]).all()]
+    filtered_pivot = initial_pivot.drop(columns=columns_to_drop)
+
+    # Applying the conversion to the columns (for relative training size only)
+
+    new_columns = []
+    for col in filtered_pivot.columns:
+        model, pooling, metric, size = col
+        new_size = convert_to_frac(size)
+        new_columns.append((model, pooling, metric, new_size))
+
+
+
+    # filtered_pivot.columns = pd.MultiIndex.from_tuples(new_columns)
+    # Rounding the metric values to one decimal place
+
+    rounded_pivot = filtered_pivot.round(1)
+    rounded_pivot.rename(index={'artificial': r'$\textsc{EncodeX}$'}, inplace=True)
+    # Moving the renamed system to the top of the DataFrame
+    reordered_pivot = rounded_pivot.reindex([r'$\textsc{EncodeX}$'] + [idx for idx in rounded_pivot.index if idx != r'$\textsc{EncodeX}$'])
+    # Function to convert relative training size to LaTeX math expressions if less than 1
+    # Modified to directly manipulate the MultiIndex levels
+
+
+
+    def refined_convert_to_latex_fraction(value):
+        # If value is already a LaTeX fraction, return it as is
+        if isinstance(value, str) and r'\frac' in value:
+            return value
+        # Otherwise, convert the value to a fraction
+        try:
+            numeric_value = float(value)
+            if 0 < numeric_value < 1:
+                frac = Fraction(numeric_value).limit_denominator()
+                return rf'$\frac{{{frac.numerator}}}{{{frac.denominator}}}$'
+            elif numeric_value >= 1:
+                return str(int(numeric_value))
+        except ValueError:
+            pass
+        return value
+    # Applying the refined conversion to the DataFrame columns
+
+    refined_columns = [(model, pooling,  metric, refined_convert_to_latex_fraction(size)) for model, pooling, metric, size in reordered_pivot.columns]
+
+    reordered_pivot.columns = pd.MultiIndex.from_tuples(refined_columns)
+    reordered_pivot = reordered_pivot.round(1)
+    rounded_scores = reordered_pivot.applymap(lambda x: round(x, 1) if isinstance(x, (int, float)) else x)
+
+
+
+    rounded_scores.to_csv("./results-rq1.csv")
+    st.write(os.getcwd())
+    # st.dataframe(rounded_scores)
+
+
+    # Extract unique values from the DataFrame's hue column
+    # additional_values = filtered_df["params.model"].dropna().unique()
+    # # Combine known values with additional unique values, excluding duplicates
+    # possible_values = known_values + [
+    #     val for val in additional_values if val not in known_values
+    # ]
+    #
+    # # Generate a color palette with enough colors for all possible values
+    # palette = sns.color_palette("husl", len(possible_values))
+    # # st.write(additional_values)
+    # # st.write("possible:")
+    # # st.write(possible_values)
+    # #
+    # # st.write(palette)
+
+    model_order = ["Lasso", "Bayesian", "Mean"]
+    model_colors = {
+        "Lasso": "blue",
+        "Bayesian": "green",
+        "Mean": "grey"
+    }
+
+    with st.spinner("Waiting for plot to be rendered"):
+        # filtered_df = filtered_df.sort_values(
+        #     by="params.software-system", ascending=True
+        # )
+
+        plot = sns.relplot(
+            data=melted_df,
+            x=relative_train_size_lbl,
+            # x="params.loo_budget_rel",
+            y="Value",
+            kind="line",
+            hue="Model",
+            size="Metric",
+            style=pooling_cat_lbl,
+            style_order=["complete", "partial", "no"],
+            facet_kws={"sharey": False, "sharex": True},
+            # palette=palette_,
+            hue_order=model_order,  # Ensuring the order is applied
+            palette=model_colors,
+            aspect=1.35,
+            height=2.5,
+            col="Subject System",
+            col_wrap= 5,
+        )
+    #     # setting boundaries that make sense
+    #
+    #     sns.move_legend(
+    #         plot,
+    #         "center right",
+    #         bbox_to_anchor=(-0.005, 0.5),
+    #         # ncol=3,
+    #         # title=None,
+    #         frameon=True,
+    #         fancybox=True,
+    #     )
+    #
+    #     if only_one_system:
+    #         plt.suptitle(str(systems[0]))
+    #     if only_one_metric:
+    #         plt.suptitle(str(score_columns[0]))
+    #
+    #     sup_title = (
+    #         "" if plt.gcf()._suptitle is None else plt.gcf()._suptitle.get_text()
+    #     )
+    #
+    st.write("## Plot")
+
+    for ax in plt.gcf().axes:
+        title = ax.get_title()
+        _, y_max = ax.get_ylim()
+        y_max = min(150, y_max)
+        ax.set_ylim(0, y_max)
+        title = ax.get_title()
+        new_title = title.replace("Subject System = ", "")
+        ax.set_title(new_title)
+    fig = plt.gcf()
+    #     fig.canvas.draw()
+    #     time.sleep(0.1)
+    tmp_file = "streamlit-last-results-multitask.pdf"
+    plt.savefig(tmp_file, bbox_inches='tight')
+    fig.savefig("temp_plot.png", bbox_inches="tight", dpi=300)
+    st.image("temp_plot.png")
+
+    with st.expander(label="Get Your PDF Now COMPLETELY FREE!!!1!11!!", expanded=False):
+        embed_pdf(tmp_file)
+    #         if "R2" in title or "R2" in sup_title:
+    #             ax.set_ylim(-1, 1)
+    #             print("set R2 ylims")
+    #         lower_title = str(title).lower()
+    #         if "mape" in lower_title or "mape" in sup_title:
+    #             y_min, y_max = ax.get_ylim()
+    #             print("old y limits", y_min, y_max)
+    #             ax.set_ylim(0, min(y_max, y_lim_max_mape))
+    #
+    #             y_min, y_max = ax.get_ylim()
+    #             print("new y limits", y_min, y_max)
+    #             # ax.set_yscale('log')
+    #         if "test_set_log" in lower_title or "test_set_log" in sup_title:
+    #             ax.set_yscale("symlog")
+    #             y_min, _ = ax.get_ylim()
+    #             ax.set_ylim(y_min, 0)
+    #         new_title = title
+    #         new_title = new_title.replace("params.software-system = ", "")
+    #         new_title = new_title.replace("Metric = ", "")
+    #         ax.set_title(new_title)
+    #         # Adjusting the legend position
+    #     # plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", borderaxespad=0.0)
+    #     plt.suptitle("")
+    #     plt.tight_layout()
+
+
+        # st.pyplot(fig)
+
+
 def draw_multitask_dashboard(combined_df):
     st.write("## Plot configuration")
-    filtered_df, score_columns, systems, y_lim_max_mape = filter_result_df(combined_df)
-    sns.set_context("talk")
-    share_y = False
-    share_x = True
-    only_one_metric = False
-    only_one_system = False
-    if len(systems) == 1:
-        col_dict = {
-            "col": "Metric",
-            "col_wrap": 3,
-        }
-        st.info("Wrapping columns because only one system was selected!")
-        only_one_system = True
-    elif len(score_columns) == 1:
-        col_dict = {
-            "col": "params.software-system",
-            "col_wrap": 3,
-        }
-        st.info("Wrapping columns because only one score was selected!")
-        only_one_metric = True
-
+    
+    plot_type = st.selectbox("Do you want to get the paper plots more extensive plots?", ["Paper", "Custom"])
+    
+    if plot_type == "Paper":
+        draw_multitask_paper_plot(combined_df)
     else:
-        col_dict = {
-            "col": "Metric",
-            "col_wrap": None,
-            "row": "params.software-system",
-        }
-    plot_multitask(
-        col_dict,
-        filtered_df,
-        only_one_metric,
-        only_one_system,
-        score_columns,
-        share_x,
-        share_y,
-        systems,
-        y_lim_max_mape,
-    )
+            
+        
+        
+        filtered_df, score_columns, systems, y_lim_max_mape = filter_result_df(combined_df)
+        sns.set_context("talk")
+        share_y = False
+        share_x = True
+        only_one_metric = False
+        only_one_system = False
+        col_wrap = 5
+        if len(systems) == 1:
+            col_dict = {
+                "col": "Metric",
+                "col_wrap": col_wrap,
+            }
+            st.info("Wrapping columns because only one system was selected!")
+            only_one_system = True
+        elif len(score_columns) == 1:
+            col_dict = {
+                "col": "params.software-system",
+                "col_wrap": col_wrap,
+            }
+            st.info("Wrapping columns because only one score was selected!")
+            only_one_metric = True
+    
+        else:
+            col_dict = {
+                "col": "Metric",
+                "col_wrap": None,
+                "row": "params.software-system",
+            }
+        plot_multitask(
+            col_dict,
+            filtered_df,
+            only_one_metric,
+            only_one_system,
+            score_columns,
+            share_x,
+            share_y,
+            systems,
+            y_lim_max_mape,
+        )
 
 
 def plot_multitask(
@@ -376,6 +651,8 @@ def plot_multitask(
             # palette=palette_,
             hue_order=possible_values,
             # palette="colorblind",
+            aspect=1.35,
+            height=2.8,
             **col_dict,
         )
         # setting boundaries that make sense
@@ -423,12 +700,19 @@ def plot_multitask(
             ax.set_title(new_title)
             # Adjusting the legend position
         # plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", borderaxespad=0.0)
+        plt.suptitle("")
         plt.tight_layout()
         fig = plt.gcf()
         fig.canvas.draw()
         time.sleep(0.1)
+        tmp_file = "streamlit-last-results-multitask.pdf"
+        plt.savefig(tmp_file, bbox_inches='tight')
         fig.savefig("temp_plot.png", bbox_inches="tight", dpi=300)
         st.image("temp_plot.png")
+
+        with st.expander(label="Get Your PDF Now COMPLETELY FREE!!!1!11!!", expanded=False):
+            embed_pdf(tmp_file)
+
         # st.pyplot(fig)
 
 

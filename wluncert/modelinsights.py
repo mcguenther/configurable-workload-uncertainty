@@ -3,7 +3,7 @@ import os
 import os.path
 import time
 from typing import List, Dict
-
+import json
 import localflow as mlflow
 import numpy as np
 import pandas as pd
@@ -18,7 +18,7 @@ from utils import get_date_time_uuid
 from models import NumPyroRegressor
 from mlfloweval import kl_divergence
 from pprint import pprint
-
+EXP_ID = "jdorn-modelinsights"
 
 class NumpyroModelInsight:
     def __init__(self, path_to_netcdf):
@@ -119,14 +119,18 @@ class NumpyroModelInsight:
         outlier_value_col = "std"
         df["skewness"] = df["skewness"].abs()
         pprint(df)
+        log_dataframe(df, "hyperior-moments")
         outliers = self.get_inter_quartile_outliers(df, outlier_value_col)
         print()
         pprint(outliers)
+        log_dataframe(outliers, "outliers-hyperiors-most-iqr")
         print()
         pprint(sus_kls)
+        mlflow.log_dict(sus_kls, "sus-kl-divergence-workloads-per-feature")
         print()
         print("conformal")
         pprint(conformal_envs)
+        mlflow.log_dict(conformal_envs, "env-conformality")
         file_counts = {}
         for category in conformal_envs:
             for file in conformal_envs[category]:
@@ -138,10 +142,11 @@ class NumpyroModelInsight:
         sorted_file_counts = dict(
             sorted(file_counts.items(), key=lambda item: item[1], reverse=True)
         )
-
+        mlflow.log_dict(sorted_file_counts, "wl-conformality-counts")
         print("Conformal envs counts:")
         for file, count in sorted_file_counts.items():
             print(f"{file}: {count}")
+        print("finished quantitative analysis")
 
     def get_inter_quartile_outliers(self, df, outlier_value_col):
         # Schritt 1: IQR berechnen
@@ -215,14 +220,16 @@ class NumpyroModelInsight:
             if lower_index >= total_subplots:
                 break
             ax_top = axes[top_index]
-            sns.histplot(base_hyper_samples, ax=ax_top, color="gray")
+            sns.kdeplot(base_hyper_samples, ax=ax_top, color="gray", fill=True)
             ax_top.set_title(f"{var_name} Location Hyperior")
             ax_top.set_xlabel("")  # Hide x-axis label for the top plot
 
             # The bottom plot - displot with different hues
             ax_bottom = axes[lower_index]
-            sns.histplot(
-                data=df_long, x="Standard influence", hue="Workload", ax=ax_bottom
+            do_legend = i==0
+            sns.kdeplot(
+                data=df_long, x="Standard influence", hue="Workload", ax=ax_bottom,legend=do_legend, fill=True,
+
             )
             ax_bottom.set_title(f"{var_name} per workload")
 
@@ -230,12 +237,16 @@ class NumpyroModelInsight:
             if (2 * i + 1) // columns < (rows - 1) * 2:
                 ax_bottom.set_xlabel("")
 
-        # Hide any unused subplots
-        for j in range(2 * total_pairs, rows * columns):
-            fig.delaxes(axes[j])
+        last_used_subplot_index = lower_index if lower_index < total_subplots else top_index
+        unused_axes_start_index = last_used_subplot_index
+
+        # Loop through the remaining axes and delete them
+        for ax in axes[unused_axes_start_index:]:
+            ax.remove()
 
         plt.tight_layout()
-        plt.show()
+        log_figure_pdf("hyperiors")
+        # plt.show()
 
     def get_base_hyperior_and_influences(self):
         posterior = self.get_posterior_data()
@@ -300,27 +311,77 @@ class NumpyroModelInsight:
         # Adjust layout
         plt.tight_layout()
         # Show the plot
+        plot_name = "hyperiors-vs-concrete"
+        log_figure_pdf(plot_name)
+
         plt.show()
 
 
+
+
+# This function will search for .netcdf files that are in directories containing the word "partial"
+def find_partial_netcdf_files(path):
+    netcdf_files = []
+    params = []
+    for root, dirs, files in os.walk(path):
+        if "partial" in root:
+            for file in files:
+                relative_path = os.path.join(root, file)
+                if file.endswith('params.json'):
+                    with open(relative_path, 'r') as json_file:
+                        params_dict = json.load(json_file)
+
+                        params.append(params_dict)
+                if file.endswith('.netcdf'):
+                    # Get the relative path from the given directory path
+                    # relative_path = os.path.relpath(os.path.join(root, file), path)
+                    netcdf_files.append(relative_path)
+    return netcdf_files, params
+
+
+
+# Get the list of relevant .netcdf files
+
+def log_dataframe(df, df_name):
+    df.to_csv("%s.csv" % df_name)
+    mlflow.log_artifact("%s.csv" % df_name)
+    time.sleep(0.1)
+    os.remove("%s.csv" % df_name)
+
 def main():
+    mlflow.set_experiment(EXP_ID)
     parser = argparse.ArgumentParser(description="Script description")
     parser.add_argument(
         "--netcdf",
         type=str,
         help="path to results parquet file or similar",
-        default="single-trace-debugger/arviz_data-6e5a3d1d-032d-428f-aea7-16bccdf79158.netcdf",
+        # default="single-trace-debugger/arviz_data-6e5a3d1d-032d-428f-aea7-16bccdf79158.netcdf",
+        default="single-trace-debugger/240321-10-01-40-uncertainty-learning-2024-FKQHtsnsk8",
+        # default="single-trace-debugger/240321-13-42-40-uncertainty-learning-2024-DnfMtUuQWk",
     )
     args = parser.parse_args()
-    netcdf = args.netcdf
 
-    al = NumpyroModelInsight(netcdf)
-    al.plot_overview()
+    netcdf_parent = args.netcdf
+    partial_netcdf_files, all_params = find_partial_netcdf_files(netcdf_parent)
+
+    replication_lbl = get_date_time_uuid()
+    with mlflow.start_run(run_name=replication_lbl):
+        for i, (netcdf, params) in enumerate(zip(partial_netcdf_files, all_params)):
+            sws = params["params.software-system"]
+            job_name = f"{str(i)}-{sws}"
+            with mlflow.start_run(run_name=job_name):
+                mlflow.log_dict(params, "training-params")
+                al = NumpyroModelInsight(netcdf)
+                al.plot_overview()
     # al.plot_all_options()
 
     # plot_metadata(meta_df, output_base_path)
     # plot_errors(err_type, output_base_path, score_df)
 
+def log_figure_pdf(plot_name):
+    file_name = "%s.pdf" % plot_name
+    plt.savefig(file_name)
+    mlflow.log_artifact(file_name)
 
 if __name__ == "__main__":
     main()

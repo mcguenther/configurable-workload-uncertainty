@@ -110,7 +110,7 @@ class ExperimentTransfer(ExperimentTask):
         super().__init__(*args, **kwargs)
         self.transfer_sample_budgets = [
             3,
-        ]  # transfer_budgets or [0.0, 0.125, 0.25, 0.375, 0.5, 1.0]
+        ]
         self.relative_transfer_sample_budges = (0.1, 0.2)
         # we have as low as 6 workloads per system. hence, to stay comparable, we use up to 5 workloads as source workloads
         self.transfer_known_workloads = [
@@ -123,13 +123,12 @@ class ExperimentTransfer(ExperimentTask):
     def run(self, return_predictions=False):
         base_log_dict = self.get_metadata_dict()
         type_dict = {"experiment-type": self.label}
-        n_opts = base_log_dict["n_train_features"]
         any_train_data = self.train_list[0]
         n_train_samples = len(any_train_data)
-        calculated_abs_transfer_budgets = {rel:max(int(rel * n_train_samples), 1) for rel in self.relative_transfer_sample_budges}
+        calculated_abs_transfer_budgets = {rel:max(int(rel * n_train_samples), 3) for rel in self.relative_transfer_sample_budges}
         log_dict = {
             "absolute_transfer_budgets": self.transfer_sample_budgets,
-            "relateive_to_absolute_mapped_budgets": calculated_abs_transfer_budgets,
+            "relative_to_absolute_mapped_budgets": calculated_abs_transfer_budgets,
             **type_dict,
         }
         log_dict = {**log_dict, **base_log_dict}
@@ -142,9 +141,9 @@ class ExperimentTransfer(ExperimentTask):
         joint_abs_train_samples = sorted(list(set([*self.transfer_sample_budgets, *calculated_abs_transfer_budgets.values()])))
         for n_transfer_samples in joint_abs_train_samples:
             if n_train_samples <= n_transfer_samples:
-                print(
-                    f"skipping transfer budget {n_transfer_samples} because there are only {n_train_samples} total train samples!"
-                )
+                # print(
+                #     f"skipping transfer budget {n_transfer_samples} because there are only {n_train_samples} total train samples!"
+                # )
                 continue
             name = f"n_transfer_samples-{n_transfer_samples}"
             with mlflow.start_run(nested=True, run_name=name):
@@ -460,4 +459,5 @@ class Replication:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", category=UserWarning)
                     task.run()
+        del task.model
         del task

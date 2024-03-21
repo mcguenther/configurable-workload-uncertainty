@@ -799,9 +799,13 @@ class PaiwiseOptionMapper(Preprocessing):
         df_poly = pd.DataFrame(
             transformed_df, columns=self.poly.get_feature_names_out(df.columns)
         )
-        new_cols = self.get_cols_that_are_not_constant_nor_identical_cols(df_poly)
-        # Concatenate original DataFrame with polynomial features
-        df_result = df_poly.loc[:, new_cols]
+        if len(df) < 2:
+            # we just keep the training data as there are no influences to be learned either way
+            df_result = df_poly
+        else:
+            new_cols = self.get_cols_that_are_not_constant_nor_identical_cols(df_poly)
+            # Concatenate original DataFrame with polynomial features
+            df_result = df_poly.loc[:, new_cols]
         self.store_final_interactions(df_result)
         return df_result
 

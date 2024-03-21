@@ -111,13 +111,13 @@ def main():
     rep_lbl = "full-run"
     if debug:
         chosen_model_lbls = []
-        chosen_model_lbls.extend(["no-pooling-lin"])
-        chosen_model_lbls.extend(["cpooling-lin"])
-        chosen_model_lbls.extend(["model_lasso_reg_cpool"])
-        chosen_model_lbls.extend(["model_lasso_reg_no_pool"])
-        chosen_model_lbls.extend(["cpooling-rf"])
-        chosen_model_lbls.extend(["no-pooling-rf"])
-        chosen_model_lbls.extend(["no-pooling-dummy"])
+        # chosen_model_lbls.extend(["no-pooling-lin"])
+        # chosen_model_lbls.extend(["cpooling-lin"])
+        # chosen_model_lbls.extend(["model_lasso_reg_cpool"])
+        # chosen_model_lbls.extend(["model_lasso_reg_no_pool"])
+        # chosen_model_lbls.extend(["cpooling-rf"])
+        # chosen_model_lbls.extend(["no-pooling-rf"])
+        # chosen_model_lbls.extend(["no-pooling-dummy"])
 
         # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
         # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
@@ -134,7 +134,7 @@ def main():
         # chosen_model_lbls.extend(["partial-pooling-mcmc-RHS"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-RHS-pw"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-pw"])
-        # chosen_model_lbls.extend(["no-pooling-lin-pw"])
+        chosen_model_lbls.extend(["no-pooling-lin-pw"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-extra-pw"])
 
         # chosen_model_lbls.extend(["cpooling-mcmc-1model", "partial-pooling-mcmc-extra", "no-pooling-rf"])
@@ -165,57 +165,50 @@ def main():
         # )
         train_sizes = (
             # 0.001,
-            # 0.125,
+            0.125,
             0.25,
-            # 0.5,
-            # 0.75,
+            0.5,
+            0.75,
             # 0.9,
-            # 1.0,
-            # 1.1,
+            1.0,
+            # # 1.1,
             # 1.25,
             # 1.5,
-            # 1.75,
+            # # 1.75,
             # 2,
             # 3.0,
             # 5,
         )
 
-        n_reps = 5
+        n_reps = 1
         rnds = get_rep_ids(n_reps, num_reps, rep_offset)
 
         selected_data = (
-            "jump3r",
-            "H2",
+            # "jump3r",
+            # "H2",
             # "xz",  # bad results
             # "x264",  # bad results
-            # "batik",
+            "batik",
             # "dconvert",
             # "kanzi",
-            "lrzip",  # bad results
+            # "lrzip",  # bad results
             # "z3",
             # "artificial",
-            "VP9",
+            # "VP9",
             # "x265",
         )
         rep_lbl = "debug-1modelvs partial"
     else:
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
         train_sizes = (
-            0.125,
-            0.25,
-            # 0.375,
-            0.5,
-            # 0.675,
-            0.75,
-            # 0.9,
-            1.0,
-            # 1.1,
-            # 1.25,
-            1.5,
-            # 1.75,
-            2,
-            # 2.5,
+            # 0.125,
+            # 0.25,
+            # 0.5,
+            # 0.75,
+            # 1.0,
+            # 1.5,
+            # 2,
             3,
-            # 4,
         )
 
         default_n_reps = 3
@@ -237,23 +230,24 @@ def main():
         )
         chosen_model_lbls = []
 
-        chosen_model_lbls.extend(["no-pooling-lin"])
-        chosen_model_lbls.extend(["cpooling-lin"])
-        chosen_model_lbls.extend(["cpooling-rf"])
-        chosen_model_lbls.extend(["no-pooling-rf"])
-        chosen_model_lbls.extend(["no-pooling-dummy"])
+        # chosen_model_lbls.extend(["no-pooling-lin"])
+        # chosen_model_lbls.extend(["cpooling-lin"])
+        # chosen_model_lbls.extend(["cpooling-rf"])
+        # chosen_model_lbls.extend(["no-pooling-rf"])
+        # chosen_model_lbls.extend(["no-pooling-dummy"])
         chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
         chosen_model_lbls.extend(["cpooling-mcmc-1model"])
-        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
-
-        chosen_model_lbls.extend(["model_lasso_reg_cpool"])
-        chosen_model_lbls.extend(["model_lasso_reg_no_pool"])
+        chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
+        #
+        # chosen_model_lbls.extend(["model_lasso_reg_cpool"])
+        # chosen_model_lbls.extend(["model_lasso_reg_no_pool"])
 
         # chosen_model_lbls.extend(["mcmc-selfstd-const-hyper"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-RHS"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-RHS-pw"])
 
-        chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe-pw"])
 
@@ -295,7 +289,7 @@ def main():
 def get_all_models(debug, n_jobs, plot, do_store=False):
     if debug:
         mcmc_num_warmup = 500
-        mcmc_num_samples = 700
+        mcmc_num_samples = 500
         mcmc_num_chains = 3
     else:
         mcmc_num_warmup = 1000
@@ -311,6 +305,7 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
     rf_proto = RandomForestRegressor()
     model_rf = NoPoolingEnvModel(rf_proto, preprocessings=[Standardizer()])
 
+    complete_pooling_rf = CompletePoolingEnvModel(rf_proto, preprocessings=[Standardizer()])
     lin_reg_proto = LinearRegression()
     model_lin_reg = NoPoolingEnvModel(lin_reg_proto, preprocessings=[Standardizer()])
     model_lin_reg_cpool = CompletePoolingEnvModel(
@@ -328,6 +323,8 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
     model_lasso_reg_no_pool = NoPoolingEnvModel(
         lasso_proto, preprocessings=[Standardizer()]
     )
+
+    lasso_proto = Lasso(random_state=0)
     model_lasso_reg_cpool = CompletePoolingEnvModel(
         lasso_proto, preprocessings=[Standardizer()]
     )
@@ -461,7 +458,6 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
         persist_arviz=do_store,
     )
 
-    complete_pooling_rf = CompletePoolingEnvModel(rf_proto)
     models = {
         "partial-pooling-mcmc-extra": model_partial_extra_standardization,
         "partial-pooling-mcmc-extra-pw": model_partial_extra_standardization_pw,

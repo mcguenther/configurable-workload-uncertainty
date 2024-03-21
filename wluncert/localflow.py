@@ -199,7 +199,8 @@ class LocalTask:
         self.metrics = {**self.metrics, **d}
 
     def log_dict(self, d, name):
-        self.dicts = {name: {**self.params, **d}}
+        # self.dicts = {name: {**self.params, **d}}
+        self.dicts[name] = d
 
     def log_artifact(self, artifact_path):
         out_path = self.get_task_folder()
@@ -210,6 +211,8 @@ class LocalTask:
         return self.path_id
 
     def persist_pretty_dict(self, file_name, d):
+        if not file_name.endswith(".json"):
+            file_name = file_name + ".json"
         out_path = os.path.join(self.get_task_folder(), file_name)
         try:
             with open(out_path, 'w') as file:

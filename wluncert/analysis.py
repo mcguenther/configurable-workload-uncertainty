@@ -70,7 +70,7 @@ class ModelEvaluation:
     def compute_ape(self, y_true, y_pred):
         return np.abs((y_true - y_pred) / y_true) * 100
 
-    def mape_ci(self, y_true, pred_arr, ci=None):
+    def mape_ci(self, y_true, y_pred, pred_arr, ci=None):
         ci = ci or self.default_ci_width
         intervals = az.hdi(pred_arr.T, hdi_prob=ci)  # .ravel()
         lowers, uppers = intervals[:, 0], intervals[:, 1]
@@ -84,8 +84,11 @@ class ModelEvaluation:
         ape_cis[~mask_y_true_in_upper_bound] = self.compute_ape(
             y_true[~mask_y_true_in_upper_bound], uppers[~mask_y_true_in_upper_bound]
         )
+        interval_widths = uppers - lowers
+        relative_ci_widths = np.abs(interval_widths / y_pred)
+        mean_width = relative_ci_widths.mean()
         mape = ape_cis.mean()
-        return mape
+        return mape, mean_width
 
     def add_mape(self):
         self.eval_mape = True
@@ -116,6 +119,7 @@ class ModelEvaluation:
         err_type_mape = "mape"
         err_type_r2 = "R2"
         err_type_mape_ci = "mape_ci"
+        err_type_rel_ci_width = "rel_pred_ci_width"
         pred_has_samples = self.predictions_samples is not None
         for i, (test_set, y_pred) in enumerate(zip(self.test_list, self.predictions)):
             if test_set is None:
@@ -131,8 +135,9 @@ class ModelEvaluation:
                 # y_pred = NumPyroRegressor.get_mode_from_samples(raw_samples.T)
                 merged_predictions_samples.extend(raw_samples)
                 if self.eval_mape_ci:
-                    mape_ci = self.mape_ci(y_true, raw_samples)
+                    mape_ci, relative_ci_widths = self.mape_ci(y_true, y_pred, raw_samples)
                     tups.append((err_type_mape_ci, env_id, mape_ci))
+                    tups.append((err_type_rel_ci_width, env_id, relative_ci_widths))
             merged_predictions.extend(y_pred)
             if self.eval_mape:
                 mape = self.mape_100(y_true.ravel(), y_pred)
@@ -147,13 +152,18 @@ class ModelEvaluation:
                 self.predictions_samples,
             )
         if pred_has_samples and self.eval_mape_ci:
-            merged_err_mape_ci = self.mape_ci(
+
+            merged_err_mape_ci, relative_ci_widths = self.mape_ci(
                 np.atleast_1d(merged_y_true).T,
+                np.atleast_1d(merged_predictions),
                 np.atleast_2d(merged_predictions_samples),
             )
             overall_tup_mape_ci = err_type_mape_ci, "overall", merged_err_mape_ci
+            overall_tup_rel_ci_width = err_type_rel_ci_width, "overall", relative_ci_widths
             tups.append(overall_tup_mape_ci)
+            tups.append(overall_tup_rel_ci_width)
             mlflow.log_metric("mape_ci_overall", merged_err_mape_ci)
+            mlflow.log_metric("relative_ci_width_overall", relative_ci_widths)
         if self.eval_mape:
             merged_err_mape = self.mape_100(
                 np.atleast_2d(merged_y_true).T, np.atleast_2d(merged_predictions).T
