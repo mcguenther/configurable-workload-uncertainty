@@ -331,8 +331,8 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
         "mcmc": "Bayesian",
         "mean-pred": "Mean",
         "mcmc-adaptive-shrinkage": "Bayesian",
-        "model_lasso_reg_no_pool": "Lasso",
-        "model_lasso_reg_cpool": "Lasso",
+        # "model_lasso_reg_no_pool": "Lasso",
+        # "model_lasso_reg_cpool": "Lasso",
     }
     all_models = list(combined_df[model_col].unique())
     #st.write(all_models)
@@ -341,7 +341,8 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
 
     col_mapper = {
         "mape":"MAPE",
-        "mape_ci":"$\\text{MAPE}_\\text{CI}$"
+        # "mape_ci":"$\\text{MAPE}_\\text{CI}$"
+        "mape_ci":"MAPEci"
 
     }
     # filtered_df = filtered_df[filtered_df[cat_col].isin(s_poolings)]
@@ -354,60 +355,45 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
         value_name="Value",
     )
     melted_df["Metric"] = melted_df["Metric"].str.replace("metrics.", "")
-
-
     melted_df = melted_df.loc[melted_df["Metric"].isin(col_mapper)]
     melted_df["Metric"] = melted_df["Metric"].replace(col_mapper)
     #st.dataframe(melted_df)
 
     pooling_cat_lbl = "Pooling"
     relative_train_size_lbl = "Relative Train Size"
+    model_lbl = "Model"
+    subject_system_lbl = "Subject System"
     params_mapper = {
-        "params.model":"Model",
-        "params.software-system": "Subject System",
+        "params.model": model_lbl,
+        "params.software-system": subject_system_lbl,
         "params.relative_train_size": relative_train_size_lbl,
         "params.pooling_cat": pooling_cat_lbl,
     }
-
     melted_df = melted_df.rename(columns=params_mapper)
 
+    bnp = "$\Pi^\\mathit{np}_B$"
+    bpp = "$\Pi^\\mathit{pp}_B$"
+    bcp = "$\Pi^\\mathit{cp}_B$"
+    melted_df[model_lbl].loc[(melted_df[model_lbl] == "Bayesian") & (melted_df[pooling_cat_lbl] == "no")] = bnp
+    melted_df[model_lbl].loc[(melted_df[model_lbl] == "Bayesian") & (melted_df[pooling_cat_lbl] == "partial")] = bpp
+    melted_df[model_lbl].loc[(melted_df[model_lbl] == "Bayesian") & (melted_df[pooling_cat_lbl] == "complete")] = bcp
+    melted_df=melted_df.drop(columns=["Pooling"])
     st.dataframe(melted_df)
 
+    melted_df = melted_df.loc[melted_df[relative_train_size_lbl].isin([0.25,0.5,0.75,1,3])]
+    melted_df = melted_df.loc[~melted_df[subject_system_lbl].isin(["artificial", "kanzi"])]
+
+    melted_df["Value"] = melted_df["Value"].astype(float)
+    melted_df["Value"] = melted_df["Value"].astype(float)
     st.write("## Pivot Table")
-    mape_df = melted_df[['Subject System', 'Relative Train Size', 'Model', pooling_cat_lbl, "Metric", "Value"]]
-    grouped_mape = mape_df.groupby(['Subject System', 'Relative Train Size', 'Model', pooling_cat_lbl, "Metric",]).mean().reset_index()
-    st.dataframe(grouped_mape)
-    initial_pivot = grouped_mape.pivot_table(index=['Subject System'],
-                                     columns=['Model', pooling_cat_lbl, 'Metric', 'Relative Train Size'],
+    mape_df = melted_df[['Subject System', 'Relative Train Size', 'Model', "Metric", "Value"]]
+    # grouped_mape = mape_df.groupby(['Subject System', 'Relative Train Size', 'Model', pooling_cat_lbl, "Metric",]).mean().reset_index()
+    # st.dataframe(grouped_mape)
+    initial_pivot = mape_df.pivot_table(index=['Subject System'],
+                                     columns=['Model', 'Metric', 'Relative Train Size'],
                                      values='Value',
-                                     aggfunc='first')
-    st.dataframe(grouped_mape)
-    # Dropping columns where either MAPE or MAPE_CI is missing for any model-relative training size combination
-    columns_to_drop = [col for col in initial_pivot.columns if pd.isnull(initial_pivot[col]).all()]
-    filtered_pivot = initial_pivot.drop(columns=columns_to_drop)
-
-    # Applying the conversion to the columns (for relative training size only)
-
-    new_columns = []
-    for col in filtered_pivot.columns:
-        model, pooling, metric, size = col
-        new_size = convert_to_frac(size)
-        new_columns.append((model, pooling, metric, new_size))
-
-
-
-    # filtered_pivot.columns = pd.MultiIndex.from_tuples(new_columns)
-    # Rounding the metric values to one decimal place
-
-    rounded_pivot = filtered_pivot.round(1)
-    rounded_pivot.rename(index={'artificial': r'$\textsc{EncodeX}$'}, inplace=True)
-    # Moving the renamed system to the top of the DataFrame
-    reordered_pivot = rounded_pivot.reindex([r'$\textsc{EncodeX}$'] + [idx for idx in rounded_pivot.index if idx != r'$\textsc{EncodeX}$'])
-    # Function to convert relative training size to LaTeX math expressions if less than 1
-    # Modified to directly manipulate the MultiIndex levels
-
-
-
+                                     aggfunc='mean')
+    st.dataframe(initial_pivot)
     def refined_convert_to_latex_fraction(value):
         # If value is already a LaTeX fraction, return it as is
         if isinstance(value, str) and r'\frac' in value:
@@ -424,46 +410,45 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
             pass
         return value
     # Applying the refined conversion to the DataFrame columns
+    # refined_columns = [(model, pooling,  metric, refined_convert_to_latex_fraction(size)) for model, pooling, metric, size in initial_pivot.columns]
+    # initial_pivot.columns = pd.MultiIndex.from_tuples(refined_columns)
 
-    refined_columns = [(model, pooling,  metric, refined_convert_to_latex_fraction(size)) for model, pooling, metric, size in reordered_pivot.columns]
-
-    reordered_pivot.columns = pd.MultiIndex.from_tuples(refined_columns)
-    reordered_pivot = reordered_pivot.round(1)
-    rounded_scores = reordered_pivot.applymap(lambda x: round(x, 1) if isinstance(x, (int, float)) else x)
-
-
-
+    st.dataframe(initial_pivot)
+    rounded_scores = initial_pivot.applymap(lambda x: float(round(x, 1)) if isinstance(x, (int, float)) else x)
+    st.dataframe(rounded_scores)
     rounded_scores.to_csv("./results-rq1.csv")
+
+
+    latex_str = rounded_scores.to_latex(index=True, multirow=True, multicolumn=True,
+                                        multicolumn_format='c', column_format='r' + 'r' * rounded_scores.shape[1],
+                                        escape=False,
+                                        float_format="{:0.1f}".format)
+    replacements = {
+        "0.250000":"$\\frac{1}{4}$",
+        "0.500000" :"$\\frac{1}{2}$",
+        "0.750000":"$\\frac{3}{4}$",
+        "1.000000":"$1$",
+        "3.000000":"$3$",
+    }
+    for pattern, replacement in replacements.items():
+        latex_str = latex_str.replace(pattern, replacement)
+    st.latex(latex_str)
     st.write(os.getcwd())
-    # st.dataframe(rounded_scores)
-
-
-    # Extract unique values from the DataFrame's hue column
-    # additional_values = filtered_df["params.model"].dropna().unique()
-    # # Combine known values with additional unique values, excluding duplicates
-    # possible_values = known_values + [
-    #     val for val in additional_values if val not in known_values
-    # ]
-    #
-    # # Generate a color palette with enough colors for all possible values
-    # palette = sns.color_palette("husl", len(possible_values))
-    # # st.write(additional_values)
-    # # st.write("possible:")
-    # # st.write(possible_values)
-    # #
-    # # st.write(palette)
-
     model_order = ["Lasso", "Bayesian", "Mean"]
+    # bayes_palette = sns.color_palette("YlOrBr", 3)
+    bayes_palette = ["blue", "green", "red"] # sns.color_palette("flare", 3)
     model_colors = {
-        "Lasso": "blue",
-        "Bayesian": "green",
-        "Mean": "grey"
+        # "Lasso": "blue",
+        # "Bayesian": "green",
+        bnp: bayes_palette[0],
+        bpp: bayes_palette[1],
+        bcp: bayes_palette[2],
+        "Mean": "dimgrey"
     }
 
+    model_order = list(model_colors)
+
     with st.spinner("Waiting for plot to be rendered"):
-        # filtered_df = filtered_df.sort_values(
-        #     by="params.software-system", ascending=True
-        # )
 
         plot = sns.relplot(
             data=melted_df,
@@ -472,39 +457,19 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
             y="Value",
             kind="line",
             hue="Model",
-            size="Metric",
-            style=pooling_cat_lbl,
-            style_order=["complete", "partial", "no"],
+            style="Metric",
+            style_order=["MAPE", "MAPEci"],
+            # style_order=["complete", "partial", "no"],
             facet_kws={"sharey": False, "sharex": True},
             # palette=palette_,
             hue_order=model_order,  # Ensuring the order is applied
             palette=model_colors,
             aspect=1.35,
-            height=2.5,
+            height=2.6,
             col="Subject System",
             col_wrap= 5,
+            legend=True,
         )
-    #     # setting boundaries that make sense
-    #
-    #     sns.move_legend(
-    #         plot,
-    #         "center right",
-    #         bbox_to_anchor=(-0.005, 0.5),
-    #         # ncol=3,
-    #         # title=None,
-    #         frameon=True,
-    #         fancybox=True,
-    #     )
-    #
-    #     if only_one_system:
-    #         plt.suptitle(str(systems[0]))
-    #     if only_one_metric:
-    #         plt.suptitle(str(score_columns[0]))
-    #
-    #     sup_title = (
-    #         "" if plt.gcf()._suptitle is None else plt.gcf()._suptitle.get_text()
-    #     )
-    #
     st.write("## Plot")
 
     for ax in plt.gcf().axes:
@@ -512,12 +477,44 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
         _, y_max = ax.get_ylim()
         y_max = min(150, y_max)
         ax.set_ylim(0, y_max)
+        # ax.set_xticks([0.5,1,3])
+        ax.set_xticks([0,1,2,3])
         title = ax.get_title()
         new_title = title.replace("Subject System = ", "")
         ax.set_title(new_title)
+        ax.set_ylabel("")
+        # if ax.legend_:
+        #     ax.legend_.remove()
     fig = plt.gcf()
     #     fig.canvas.draw()
     #     time.sleep(0.1)
+
+    # sns.move_legend(
+    #     plot,
+    #     loc='lower right',
+    #     ncol=2,
+    #     # frameon=True,
+    #     bbox_to_anchor=(0.875, 0.05),
+    #     # ncol=3,
+    #     # title=None,
+    #     frameon=True,
+    #     fancybox=True,
+    # )
+
+    handles, labels = plot.axes[0].get_legend_handles_labels()
+    padded_handles = [*handles[:4], None, None,  *handles[4:]]
+    padded_labels =[*labels[:4], None, None, *labels[4:]]
+    fig.legend(
+        padded_handles,
+        padded_labels,
+        loc='upper center',  # Adjusts legend position relative to the anchor.
+        ncol=len(padded_handles),  # Assumes you want all items in one row; adjust as needed.
+        frameon=True,
+        bbox_to_anchor=(0.5, -0.0015)  # Centers the legend below the plot. Adjust Y-offset as needed.
+    )
+    plot._legend.remove()
+
+
     tmp_file = "streamlit-last-results-multitask.pdf"
     plt.savefig(tmp_file, bbox_inches='tight')
     fig.savefig("temp_plot.png", bbox_inches="tight", dpi=300)
@@ -525,33 +522,6 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
 
     with st.expander(label="Get Your PDF Now COMPLETELY FREE!!!1!11!!", expanded=False):
         embed_pdf(tmp_file)
-    #         if "R2" in title or "R2" in sup_title:
-    #             ax.set_ylim(-1, 1)
-    #             print("set R2 ylims")
-    #         lower_title = str(title).lower()
-    #         if "mape" in lower_title or "mape" in sup_title:
-    #             y_min, y_max = ax.get_ylim()
-    #             print("old y limits", y_min, y_max)
-    #             ax.set_ylim(0, min(y_max, y_lim_max_mape))
-    #
-    #             y_min, y_max = ax.get_ylim()
-    #             print("new y limits", y_min, y_max)
-    #             # ax.set_yscale('log')
-    #         if "test_set_log" in lower_title or "test_set_log" in sup_title:
-    #             ax.set_yscale("symlog")
-    #             y_min, _ = ax.get_ylim()
-    #             ax.set_ylim(y_min, 0)
-    #         new_title = title
-    #         new_title = new_title.replace("params.software-system = ", "")
-    #         new_title = new_title.replace("Metric = ", "")
-    #         ax.set_title(new_title)
-    #         # Adjusting the legend position
-    #     # plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", borderaxespad=0.0)
-    #     plt.suptitle("")
-    #     plt.tight_layout()
-
-
-        # st.pyplot(fig)
 
 
 def draw_multitask_dashboard(combined_df):

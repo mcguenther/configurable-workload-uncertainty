@@ -29,6 +29,7 @@ class NumpyroModelInsight:
         # az.plot_posterior(self.az_data)
         # plt.show()
         self.sus_out_options()
+        self.plot_single_hyperiors()
         self.plot_multiple_hyperior()
 
     def get_RV_names(self):
@@ -163,6 +164,90 @@ class NumpyroModelInsight:
         ]
         return outliers
 
+    def plot_single_hyperiors(self, columns=8, rows=6):
+        base_df, base_hyper_samples = self.get_base_hyperior_and_influences()
+
+        (
+            feature_hyper_sanmples_list,
+            feature_df_list,
+            feature_names,
+        ) = self.get_feature_hypers_and_influences()
+
+        var_names = ["base", *feature_names]
+
+        hyper_samples_list = [base_hyper_samples, *feature_hyper_sanmples_list]
+        df_list = [base_df, *feature_df_list]
+        # Ensure that var_names has the same length as the hyper_samples_list and df_list
+        if len(var_names) != len(hyper_samples_list) or len(var_names) != len(df_list):
+            raise ValueError(
+                "Length of var_names, hyper_samples_list, and df_list must be the same"
+            )
+
+        # Loop over each pair of plots and populate the grid
+        for i, (base_hyper_samples, df, var_name) in enumerate(
+                zip(hyper_samples_list, df_list, var_names)
+        ):
+
+            scale=1.5
+            aspect = 1.2
+            # Create a figure with the appropriate number of subplots
+            fig, axes = plt.subplots(2, 1, figsize=(scale*aspect, scale * 2), sharex=True, sharey=False)
+            # plt.suptitle(var_name)
+            # Flatten the axes array for easy iteration
+            axes = axes.flatten()
+            # Melt the DataFrame for the current pair
+            size_kw = {
+                "fill":True,
+                "thresh": 0.05,
+            }
+            df_long = df.melt(var_name="Workload", value_name="Standard influence")
+
+            # The top plot - single distribution without hue
+            top_index = 0
+            lower_index = 1
+            # Check if we've filled all the subplots
+            # if lower_index >= total_subplots:
+            #     break
+            ax_top = axes[top_index]
+            sns.kdeplot(base_hyper_samples, ax=ax_top, color="gray", **size_kw)
+            ax_top.set_title(f"Hyper Prior")
+            ax_top.set_xlabel("")  # Hide x-axis label for the top plot
+            ax_top.set_yticks([])
+
+            # The bottom plot - displot with different hues
+            ax_bottom = axes[lower_index]
+            do_legend = False #True # i==0
+            sns_ax = sns.kdeplot(
+                data=df_long, x="Standard influence", hue="Workload", ax=ax_bottom,legend=do_legend,
+                palette="colorblind", **size_kw
+
+            )
+
+            # sns.move_legend(
+            #     sns_ax,
+            #     "center right",
+            #     bbox_to_anchor=(-0.005, 0.5),
+            #     # ncol=3,
+            #     # title=None,
+            #     frameon=True,
+            #     fancybox=True,
+            # )
+
+            ax_bottom.set_title(f"By Workload")
+            ax_bottom.set_xlabel("Influence")
+            ax_bottom.set_yticks([])
+
+            # # Hide x-axis label for all but the bottom row plots
+            # if (2 * i + 1) // columns < (rows - 1) * 2:
+            #     ax_bottom.set_xlabel("")
+
+            plt.tight_layout()
+            log_figure_pdf(f"hyperiors-{var_name}")
+            # plt.show()
+            plt.close(fig)
+
+
+        # plt.show()
     def plot_multiple_hyperior(self, columns=8, rows=6):
         base_df, base_hyper_samples = self.get_base_hyperior_and_influences()
 
@@ -196,8 +281,10 @@ class NumpyroModelInsight:
         # Calculate total subplots needed (each pair requires two subplots)
         total_subplots = min(total_pairs * 2, rows * columns)
 
+        scale=2.2
+        aspect = 1.5
         # Create a figure with the appropriate number of subplots
-        fig, axes = plt.subplots(rows, columns, figsize=(6 * columns, 3 * rows))
+        fig, axes = plt.subplots(rows, columns, figsize=(scale*aspect * columns, scale * rows))
 
         # If there's only one row and one column, put axes in a list for consistency
         if rows == columns == 1:
@@ -211,6 +298,9 @@ class NumpyroModelInsight:
             zip(hyper_samples_list, df_list, var_names)
         ):
             # Melt the DataFrame for the current pair
+            size_kw = {
+                "fill":True,
+            }
             df_long = df.melt(var_name="Workload", value_name="Standard influence")
 
             # The top plot - single distribution without hue
@@ -220,7 +310,7 @@ class NumpyroModelInsight:
             if lower_index >= total_subplots:
                 break
             ax_top = axes[top_index]
-            sns.kdeplot(base_hyper_samples, ax=ax_top, color="gray", fill=True)
+            sns.kdeplot(base_hyper_samples, ax=ax_top, color="gray", **size_kw)
             ax_top.set_title(f"{var_name} Location Hyperior")
             ax_top.set_xlabel("")  # Hide x-axis label for the top plot
 
@@ -228,7 +318,7 @@ class NumpyroModelInsight:
             ax_bottom = axes[lower_index]
             do_legend = i==0
             sns.kdeplot(
-                data=df_long, x="Standard influence", hue="Workload", ax=ax_bottom,legend=do_legend, fill=True,
+                data=df_long, x="Standard influence", hue="Workload", ax=ax_bottom,legend=do_legend, **size_kw
 
             )
             ax_bottom.set_title(f"{var_name} per workload")
@@ -380,7 +470,7 @@ def main():
 
 def log_figure_pdf(plot_name):
     file_name = "%s.pdf" % plot_name
-    plt.savefig(file_name)
+    plt.savefig(file_name, bbox_inches="tight")
     mlflow.log_artifact(file_name)
 
 if __name__ == "__main__":

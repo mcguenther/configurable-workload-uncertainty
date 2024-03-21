@@ -48,7 +48,7 @@ from models import (
     MCMCPartialSelfStandardizing,
     MCMCPartialRobustLassoAdaptiveShrinkage,
     MCMCPartialSelfStandardizingConstInfl,
-    MCMCRHS,
+    MCMCRHS,LassoGridSearchCV
 )
 import mlfloweval
 
@@ -201,13 +201,13 @@ def main():
     else:
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
         train_sizes = (
-            # 0.125,
-            # 0.25,
-            # 0.5,
-            # 0.75,
-            # 1.0,
-            # 1.5,
-            # 2,
+            0.125,
+            0.25,
+            0.5,
+            0.75,
+            1.0,
+            1.5,
+            2,
             3,
         )
 
@@ -220,12 +220,12 @@ def main():
             "x264",
             "lrzip",
             "z3",
-            "artificial",
+            # "artificial",
             "VP9",
             "x265",
             "batik",
             "dconvert",
-            "kanzi",
+            # "kanzi",
             "H2",
         )
         chosen_model_lbls = []
@@ -235,13 +235,16 @@ def main():
         # chosen_model_lbls.extend(["cpooling-rf"])
         # chosen_model_lbls.extend(["no-pooling-rf"])
         # chosen_model_lbls.extend(["no-pooling-dummy"])
-        chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
-        chosen_model_lbls.extend(["cpooling-mcmc-1model"])
-        chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
-        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
-        #
+        # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
+        # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
+        # # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
+        # #
         # chosen_model_lbls.extend(["model_lasso_reg_cpool"])
         # chosen_model_lbls.extend(["model_lasso_reg_no_pool"])
+
+        chosen_model_lbls.extend(["model_lassocv_reg_no_pool"])
+        chosen_model_lbls.extend(["model_lassocv_reg_cpool"])
 
         # chosen_model_lbls.extend(["mcmc-selfstd-const-hyper"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-RHS"])
@@ -328,6 +331,19 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
     model_lasso_reg_cpool = CompletePoolingEnvModel(
         lasso_proto, preprocessings=[Standardizer()]
     )
+
+    lassocv_proto = LassoGridSearchCV()
+    model_lassocv_reg_no_pool = NoPoolingEnvModel(
+        lassocv_proto, preprocessings=[Standardizer()]
+    )
+
+    lasso_proto = Lasso(random_state=0)
+    model_lassocv_reg_cpool = CompletePoolingEnvModel(
+        lassocv_proto, preprocessings=[Standardizer()]
+    )
+
+
+
 
     # model_lin_reg_poly = Poly
     dummy_proto = DummyRegressor()
@@ -484,6 +500,8 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
         "partial-pooling-mcmc-RHS-pw": model_multilevel_partial_RHS_pw,
         "model_lasso_reg_cpool": model_lasso_reg_cpool,
         "model_lasso_reg_no_pool": model_lasso_reg_no_pool,
+        "model_lassocv_reg_no_pool": model_lassocv_reg_no_pool,
+        "model_lassocv_reg_cpool": model_lassocv_reg_cpool,
     }
     return models
 

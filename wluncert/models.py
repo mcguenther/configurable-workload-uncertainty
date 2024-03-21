@@ -1853,3 +1853,58 @@ class CompletePoolingEnvModel(ExperimentationModelBase):
         cost_df = self.get_cost_dict()
         eval.add_custom_model_dict(cost_df)
         return eval
+
+
+
+from sklearn.base import BaseEstimator
+from sklearn.model_selection import GridSearchCV, LeaveOneOut
+from sklearn.linear_model import Lasso
+
+class LassoGridSearchCV(BaseEstimator):
+    def __init__(self, alphas=None, cv=5, scoring='neg_mean_squared_error'):
+        self.alphas = alphas if alphas is not None else [0.001, 0.01, 0.1, 0.5, 1, 10]
+        self.cv = cv
+        self.scoring = scoring
+        self.best_estimator_ = None
+        self.best_params_ = None
+
+    def fit(self, X, y):
+        # Check the number of samples
+        if len(X) <= 3:
+            self.best_estimator_ = Lasso(0.5).fit(X,y)
+        else:
+            # Use standard 5-fold cross-validation
+            cv = 3
+
+            # Define the hyperparameter grid
+            param_grid = {'alpha': self.alphas}
+
+            # Create the Lasso grid search
+            grid_search = GridSearchCV(Lasso(), param_grid, cv=cv, scoring=self.scoring)
+
+            # Perform grid search
+            grid_search.fit(X, y)
+
+            # Store the best estimator and parameters
+            self.best_estimator_ = grid_search.best_estimator_
+            self.best_params_ = grid_search.best_params_
+
+        return self
+
+    def predict(self, X):
+        # Utilize the best estimator for predictions
+        return self.best_estimator_.predict(X)
+
+    def score(self, X, y):
+        # Use the best estimator's scoring method
+        return self.best_estimator_.score(X, y)
+
+    def get_params(self, deep=True):
+        # Return parameters to satisfy scikit-learn's requirements
+        return {"alphas": self.alphas, "cv": self.cv, "scoring": self.scoring}
+
+    def set_params(self, **parameters):
+        # Set parameters to satisfy scikit-learn's requirements
+        for parameter, value in parameters.items():
+            setattr(self, parameter, value)
+        return self
