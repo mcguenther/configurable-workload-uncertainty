@@ -18,7 +18,7 @@ from models import NumPyroRegressor
 
 
 class ModelEvaluation:
-    def __init__(self, predictions, test_list, default_ci_width=0.68):
+    def __init__(self, predictions, test_list, default_ci_width=0.90):#0.68):
         self.predictions_samples = None
         self.default_ci_width = default_ci_width
         self.predictions = predictions
@@ -84,11 +84,12 @@ class ModelEvaluation:
         ape_cis[~mask_y_true_in_upper_bound] = self.compute_ape(
             y_true[~mask_y_true_in_upper_bound], uppers[~mask_y_true_in_upper_bound]
         )
+        calibration_diff =  float(ci - np.sum(mask_y_true_in_lower_bound & mask_y_true_in_upper_bound)/len(y_true))
         interval_widths = uppers - lowers
         relative_ci_widths = np.abs(interval_widths / y_pred)
         mean_width = relative_ci_widths.mean()
         mape = ape_cis.mean()
-        return mape, mean_width
+        return mape, mean_width, calibration_diff
 
     def add_mape(self):
         self.eval_mape = True
@@ -120,6 +121,7 @@ class ModelEvaluation:
         err_type_r2 = "R2"
         err_type_mape_ci = "mape_ci"
         err_type_rel_ci_width = "rel_pred_ci_width"
+        err_type_calibration_diff = "rel_pred_ci_width"
         pred_has_samples = self.predictions_samples is not None
         for i, (test_set, y_pred) in enumerate(zip(self.test_list, self.predictions)):
             if test_set is None:
@@ -135,9 +137,10 @@ class ModelEvaluation:
                 # y_pred = NumPyroRegressor.get_mode_from_samples(raw_samples.T)
                 merged_predictions_samples.extend(raw_samples)
                 if self.eval_mape_ci:
-                    mape_ci, relative_ci_widths = self.mape_ci(y_true, y_pred, raw_samples)
+                    mape_ci, relative_ci_widths, calibration_diff = self.mape_ci(y_true, y_pred, raw_samples)
                     tups.append((err_type_mape_ci, env_id, mape_ci))
                     tups.append((err_type_rel_ci_width, env_id, relative_ci_widths))
+                    tups.append((err_type_calibration_diff, env_id, calibration_diff))
             merged_predictions.extend(y_pred)
             if self.eval_mape:
                 mape = self.mape_100(y_true.ravel(), y_pred)
@@ -153,17 +156,19 @@ class ModelEvaluation:
             )
         if pred_has_samples and self.eval_mape_ci:
 
-            merged_err_mape_ci, relative_ci_widths = self.mape_ci(
+            merged_err_mape_ci, relative_ci_widths, merged_calibration_diff = self.mape_ci(
                 np.atleast_1d(merged_y_true).T,
                 np.atleast_1d(merged_predictions),
                 np.atleast_2d(merged_predictions_samples),
             )
             overall_tup_mape_ci = err_type_mape_ci, "overall", merged_err_mape_ci
             overall_tup_rel_ci_width = err_type_rel_ci_width, "overall", relative_ci_widths
+            overall_tup_rel_ci_width = err_type_calibration_diff, "overall", merged_calibration_diff
             tups.append(overall_tup_mape_ci)
             tups.append(overall_tup_rel_ci_width)
             mlflow.log_metric("mape_ci_overall", merged_err_mape_ci)
             mlflow.log_metric("relative_ci_width_overall", relative_ci_widths)
+            mlflow.log_metric("clibration_diff", merged_calibration_diff)
         if self.eval_mape:
             merged_err_mape = self.mape_100(
                 np.atleast_2d(merged_y_true).T, np.atleast_2d(merged_predictions).T
