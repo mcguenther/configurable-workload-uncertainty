@@ -16,6 +16,8 @@ import arviz as az
 from utils import get_date_time_uuid
 from models import NumPyroRegressor
 
+import torch
+import pyro.ops.stats as stats
 
 class ModelEvaluation:
     def __init__(self, predictions, test_list, default_ci_width=0.90):#0.68):
@@ -121,7 +123,8 @@ class ModelEvaluation:
         err_type_r2 = "R2"
         err_type_mape_ci = "mape_ci"
         err_type_rel_ci_width = "rel_pred_ci_width"
-        err_type_calibration_diff = "rel_pred_ci_width"
+        err_type_calibration_diff = "rel_cal_diff"
+        err_type_pMAPE = "pMAPE"
         pred_has_samples = self.predictions_samples is not None
         for i, (test_set, y_pred) in enumerate(zip(self.test_list, self.predictions)):
             if test_set is None:
@@ -141,6 +144,10 @@ class ModelEvaluation:
                     tups.append((err_type_mape_ci, env_id, mape_ci))
                     tups.append((err_type_rel_ci_width, env_id, relative_ci_widths))
                     tups.append((err_type_calibration_diff, env_id, calibration_diff))
+
+                    # pMAPE = self.calculate_pMAPE(
+                    #     np.atleast_2d(y_pred),np.atleast_1d(y_true).T,)
+                    # tups.append((err_type_pMAPE, env_id, pMAPE))
             merged_predictions.extend(y_pred)
             if self.eval_mape:
                 mape = self.mape_100(y_true.ravel(), y_pred)
@@ -155,7 +162,6 @@ class ModelEvaluation:
                 self.predictions_samples,
             )
         if pred_has_samples and self.eval_mape_ci:
-
             merged_err_mape_ci, relative_ci_widths, merged_calibration_diff = self.mape_ci(
                 np.atleast_1d(merged_y_true).T,
                 np.atleast_1d(merged_predictions),
@@ -163,12 +169,23 @@ class ModelEvaluation:
             )
             overall_tup_mape_ci = err_type_mape_ci, "overall", merged_err_mape_ci
             overall_tup_rel_ci_width = err_type_rel_ci_width, "overall", relative_ci_widths
-            overall_tup_rel_ci_width = err_type_calibration_diff, "overall", merged_calibration_diff
+            overall_tup_cal_diff = err_type_calibration_diff, "overall", merged_calibration_diff
             tups.append(overall_tup_mape_ci)
             tups.append(overall_tup_rel_ci_width)
+            tups.append(overall_tup_cal_diff)
             mlflow.log_metric("mape_ci_overall", merged_err_mape_ci)
             mlflow.log_metric("relative_ci_width_overall", relative_ci_widths)
             mlflow.log_metric("clibration_diff", merged_calibration_diff)
+
+            pMAPE = self.calculate_pMAPE(
+                np.atleast_2d(merged_predictions_samples),np.atleast_1d(merged_y_true).T,)
+        else:
+            pMAPE = self.calculate_pMAPE(
+                np.atleast_2d(merged_predictions).T,np.atleast_1d(merged_y_true).T,)
+
+        overall_pMAPE = err_type_pMAPE, "overall", pMAPE
+        tups.append(overall_pMAPE)
+        mlflow.log_metric("pmape_ci_overall", pMAPE)
         if self.eval_mape:
             merged_err_mape = self.mape_100(
                 np.atleast_2d(merged_y_true).T, np.atleast_2d(merged_predictions).T
@@ -184,6 +201,38 @@ class ModelEvaluation:
         mlflow.log_metrics(self.model_wise_dict)
         df = pd.DataFrame(tups, columns=col_names)
         return df
+
+    def calculate_crps(self, predictive_samples_np, ground_truth_np):
+        # Convert numpy arrays to torch tensors
+        predictive_samples = torch.tensor(predictive_samples_np.T)
+
+        if np.isscalar(ground_truth_np):
+            ground_truth = torch.tensor([ground_truth_np])
+        else:
+            ground_truth = torch.tensor(ground_truth_np)
+
+        # Ensure predictive_samples has shape (num_samples, batch_size)
+        if predictive_samples.ndimension() == 1:
+            predictive_samples = predictive_samples.unsqueeze(1)
+
+        # Calculate CRPS for each set of predictions
+        crps_values = stats.crps_empirical(predictive_samples, ground_truth)
+
+        # Convert CRPS values to numpy array and return
+        return crps_values.numpy()
+
+    def calculate_pMAPE(self, predictive_samples_np, ground_truth_np):
+        """
+        Calculate probabilistic Mean Absolute Percentage Error (pMAPE).
+        """
+        # Calculate CRPS values
+        crps_values = self.calculate_crps(predictive_samples_np, ground_truth_np)
+
+        # Compute pMAPE
+        ground_truth = np.array(ground_truth_np)
+        pMAPE = np.mean(np.abs(crps_values / ground_truth)) * 100
+
+        return pMAPE
 
 
 class Analysis:
