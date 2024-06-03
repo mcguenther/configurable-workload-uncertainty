@@ -1,4 +1,5 @@
 import copy
+import json
 
 import matplotlib
 
@@ -15,213 +16,50 @@ from fractions import Fraction
 
 import streamlit.components.v1 as components
 import base64
+from microRQdashboard import get_subfolders, read_and_combine_csv, embed_pdf, bayes_palette
 
-def get_subfolders(parent_folder):
-    subfolders = [f.path for f in os.scandir(parent_folder) if f.is_dir()]
-    return subfolders
+def read_sws_insights(root_dir):
+    interesting_files = [
+        "representation-selection-log.csv",
+        "representation-selection-log-screening-single-rep-sets.csv",
+        "outliers-hyperiors-most-iqr.csv",
+        "invariant-options.json",
+        "metrics.json",
+        "training-params.json",
+    ]
 
-bayes_palette = ["#47AEED", "#398CBF",  "#2F729C"]
-@st.cache_data
-def read_and_combine_csv(subfolders):
-    all_dfs = []
-    for folder in subfolders:
-        csv_files = glob.glob(os.path.join(folder, "*.csv"))
-        for file in csv_files:
-            try:
-                df = pd.read_csv(file)
-                all_dfs.append(df)
-            except Exception as e:
-                st.error(f"Error reading {file}: {e}")
-    if all_dfs:
-        combined_df = pd.concat(all_dfs, ignore_index=True)
-        return combined_df
-    else:
-        st.error("No dataframes found!")
+    data = {}
+    for main_dir in os.listdir(root_dir):
+        main_dir_path = os.path.join(root_dir, main_dir)
+        if os.path.isdir(main_dir_path):
+            for subdir, _, files in os.walk(main_dir_path):
+                subdir_data = {}
+                kdes = []
 
+                for file_name in files:
+                    file_path = os.path.join(subdir, file_name)
+                    if file_name in interesting_files:
+                        if file_name.endswith('.csv'):
+                            subdir_data[file_name] = pd.read_csv(file_path)
+                        elif file_name.endswith('.json'):
+                            with open(file_path, 'r') as json_file:
+                                subdir_data[file_name] = json.load(json_file)
+                    elif file_name.endswith('.pdf') and "hyperiors-" in file_name:
+                        kdes.append(file_path)
 
-@st.cache_data
-def plot_scores(df, score_columns):
-    for column in score_columns:
-        st.subheader(f"Plot for {column}")
-        sns_plot = sns.histplot(df[column].dropna())
-        st.pyplot(sns_plot.figure)
+                if kdes:
+                    subdir_data['kdes'] = kdes
 
+            if 'training-params.json' in subdir_data:
+                sws = subdir_data['training-params.json']['params.software-system']
+                data[sws] = subdir_data
+                # data[subdir] = subdir_data
 
-@st.cache_data
-def replace_strings(filtered_df):
-    model_replacements = {
-        "no-pooling-": "",
-        "complete-pooling-": "",
-        "partial-pooling-": "",
-        "-robust": "",
-        "cpooling-": "",
-        "-1model": "",
-        "dummy": "mean-pred",
-    }
-
-    filtered_df["params.model"] = filtered_df["params.model"].replace(
-        model_replacements, regex=True
-    )
-    pooling_replacements = {
-        "NO_POOLING": "no",
-        "COMPLETE_POOLING": "complete",
-        "PARTIAL_POOLING": "partial",
-    }
-
-    filtered_df["params.pooling_cat"] = filtered_df["params.pooling_cat"].replace(
-        pooling_replacements, regex=True
-    )
-    metrics_replacements = {
-        "_overall": "",
-    }
-
-    # Creating the rename mapping using dictionary comprehension
-    rename_mapping = {
-        col: col.replace(old, new)
-        for col in filtered_df.columns
-        for old, new in metrics_replacements.items()
-    }
-
-    # Renaming the columns in the DataFrame
-    filtered_df = filtered_df.rename(columns=rename_mapping)
-    return filtered_df
-
-
-@st.cache_data
-def filter_by_first_unique_value(df, col_name):
-    """
-    Filters a DataFrame such that it only contains rows that have the first of all values for a given column name.
-    When there are two different unique values for the column, it returns only the rows containing the first value.
-
-    Parameters:
-    df (pd.DataFrame): The input DataFrame to be filtered.
-    col_name (str): The name of the column to filter by its first unique value.
-
-    Returns:
-    pd.DataFrame: The filtered DataFrame.
-    """
-    # Identify the first unique value in the specified column
-    first_unique_value = df[col_name].unique()[0]
-
-    # Filter the DataFrame to only include rows with this first unique value
-    filtered_df = df[df[col_name] == first_unique_value]
-
-    return filtered_df
-
-
-def embed_pdf(file_path, width=700, height=700):
-    with open(file_path, "rb") as pdf_file:
-        base64_pdf = base64.b64encode(pdf_file.read()).decode('utf-8')
-
-    pdf_display = f"""
-    <style>
-    .pdf-container {{
-        width: 100%;
-        height: {height}px;
-    }}
-    iframe {{
-        width: 100%;
-        height: 100%;
-    }}
-    </style>
-    <div class="pdf-container">
-        <iframe src="data:application/pdf;base64,{base64_pdf}" type="application/pdf"   ></iframe>
-    </div>
-    """
-    components.html(pdf_display, height=height)
-
-def draw_transfer_dashboard(combined_df):
-    sws_col = "params.subject_system"
-    filtered_df, score_columns, systems, y_lim_max_mape = filter_result_df(
-        combined_df, system_col=sws_col
-    )
-
-    sws_list = list(filtered_df[sws_col].unique())
-    sns.set_theme(
-        rc={
-            "figure.dpi": 200,
-        }
-    )
-    sns.set_context("talk")  # Makes labels and lines larger
-    sns.set_style("whitegrid")  # Adds a grid for easier data visualization
-
-    # Create tabs
-    tabs = st.tabs(sws_list)
-    len(tabs)
-    # Iterate through each tab and build content
-
-    # Iterate through each tab and build content
-    for tab, sws_lbl in zip(tabs, sws_list):
-        with tab:
-            filtered_df = filter_by_first_unique_value(filtered_df, "Metric")
-            metric = list(filtered_df["Metric"].unique())[0]
-            sws_df = filtered_df.loc[filtered_df[sws_col] == sws_lbl]
-            sws_df = sws_df.loc[sws_df["params.n_transfer_samples"] >= 3]
-
-            # st.dataframe(filtered_df)
-
-            st.write(f"## Results {sws_lbl}")
-            g = sns.relplot(
-                data=sws_df,
-                x="params.n_transfer_samples",
-                y="Value",
-                col="params.number_of_source_envs",
-                row="params.relative_train_size",
-                hue="params.model",
-                kind="line",
-                style="params.pooling_cat",
-                style_order=["complete", "partial", "no"],
-                # palette="crest",
-                # linewidth=4,
-                # zorder=5,
-                # col_wrap=3,
-                height=5,
-                aspect=1.015,
-                legend=True,
-            )
-            suptitle = f"{sws_lbl}, {metric}"
-            plt.suptitle(suptitle)
-
-            sns.move_legend(
-                g,
-                "center right",
-                bbox_to_anchor=(-0.005, 0.5),
-                # ncol=3,
-                # title=None,
-                frameon=True,
-                fancybox=True,
-            )
-
-            for ax in plt.gcf().axes:
-                title = ax.get_title()
-                if "R2" in suptitle:
-                    ax.set_ylim(-1, 1)
-                    print("set R2 ylims")
-                # lower_title = str(title).lower()
-                if "mape" in suptitle:
-                    y_min, y_max = ax.get_ylim()
-                    ax.set_ylim(0, min(y_max, y_lim_max_mape))
-            plt.tight_layout()
-
-            # sns.set_theme(
-            #     rc={
-            #         "figure.dpi": 200,
-            #     }
-            # )
-            tmp_file = "streamlit-last-results.pdf"
-            plt.savefig(tmp_file, bbox_inches='tight')
-            fig = plt.gcf()
-            st.pyplot(
-                fig,
-            )
-
-            with st.expander(label=f"{sws_lbl} PDF Now COMPLETELY FREE!!!1!11!!", expanded=False):
-                embed_pdf(tmp_file)
-
+    return data
 
 def main():
     st.set_page_config(
-        page_title="MCMC Multilevel Models Dashboard",
+        page_title="MCMC Multilevel Models Insights",
         page_icon="📊",  # Update path accordingly
         layout="wide"
     )
@@ -232,7 +70,7 @@ def main():
         st.write("## Folder Selection")
         parent_folder = st.text_input(
             "Enter the path of the parent folder",
-            value="/home/jdorn/results/localflow/jdorn-multilevel-eval/",
+            value="/home/jdorn/results/localflow/jdorn-modelinsights/",
         )
         if parent_folder:
             subfolders = get_subfolders(parent_folder)
@@ -247,9 +85,7 @@ def main():
                 #          "240318-14-27-26-aggregation-WLFgXnWyqc",
                 #          "240319-11-56-40-aggregation-gn5W8tJhaY"],
                 default=[
-                        "240321-19-59-19-aggregation-bTLYxz3uFg", # old bayesian multitask
-                         # "240319-22-38-13-aggregation-dwnJojszkX", # new lasso grid
-                         "240322-13-08-04-aggregation-NKUie5gttU", # 0.9 CI
+                        "240601-22-15-26-2024-06-01_22-15-26-3hEyEdUK8d",
                          ],
             )
 
@@ -259,8 +95,8 @@ def main():
                 whole_folders = [
                     os.path.join(parent_folder, f) for f in selected_subfolders
                 ]
-                combined_df = read_and_combine_csv(whole_folders)
-                if combined_df is None or combined_df.empty:
+                results_list = [read_sws_insights(f) for f in whole_folders][0]
+                if not results_list:
                     st.error(
                         "No CSV files found in the selected subfolders or the combined DataFrame is empty."
                     )
@@ -270,59 +106,109 @@ def main():
         st.error("please check config in sidebar")
         exit(21)
     else:
-        combined_df = replace_strings(combined_df)
-        exp_types = combined_df["params.experiment-type"].unique()
-        if len(exp_types) > 1:
-            st.error("Not more than one experiment type supported!")
-            exit(22)
-        else:
-            total_pred_time_cost = int(combined_df["metrics.pred_time_cost"].sum())
-            total_fitting_time_cost = int(combined_df["metrics.fitting_time_cost"].sum())
-            total_preproc_fitting_time_cost = int(combined_df["metrics.preproc-fittin_time_cost"].sum())
-            total_preproc_pred_time_cost = int(combined_df["metrics.preproc-pred-_time_cost"].sum())
-            total_time = total_pred_time_cost + total_fitting_time_cost + total_preproc_fitting_time_cost + total_preproc_pred_time_cost
+        analyses = {
+            "hyper level": hyper_level_analysis,
+            "invariance": plot_invariance_option_results,
+
+        }
+
+        selected_systems = st.multiselect("Subselect", results_list, default=[f for f in results_list if "artif" not in f and "kanzi" not in f])
+        results_list = {k:v for k,v in results_list.items() if k in selected_systems}
 
 
-            days, hours, minutes, seconds_remaining  = seconds_to_days(total_time)
-
-            st.write("## Time Cost in Compute Time")
-            col_days, col1, col2, col3 = st.columns(4)
-            with col_days:
-                st.metric("Experiment Days", f"{days}d")
-            with col1:
-                st.metric("Experiment Hours", f"{hours}h")
-            with col2:
-                st.metric("Experiment Minutes", f"{minutes}m")
-            with col3:
-                st.metric("Experiment Seconds", f"{seconds_remaining}s")
+        # pdf_paths = [(sws, r["kde_paths"]) for sws, r in results_list.items()]
+        # for (sws, pdf_paths), i in zip(pdf_paths, range(3)):
+        #     f"# {sws}"
+        #     for pdf_path in pdf_paths:
+        #         start = pdf_path.find("hyperiors-") + len("hyperiors-")
+        #         end = pdf_path.find(".pdf")
+        #         option_lbl= pdf_path[start:end]
+        #         st.write(f"## {option_lbl}")
+        #         embed_pdf(
+        #             pdf_path
+        #         )
 
 
 
-            st.write("## Experiment Filters")
-            exp_type = exp_types[0]
-            if exp_type == "multitask":
-                draw_multitask_dashboard(combined_df)
-            elif exp_type == "transfer":
-                draw_transfer_dashboard(combined_df)
+        tabs = st.tabs(tabs= analyses)
+
+        for tab, func in zip(tabs, analyses.values()):
+            with tab:
+                func(results_list)
 
 
-def seconds_to_days(seconds):
-    days = seconds // 86400
-    hours = (seconds % 86400) // 3600
-    minutes = (seconds % 3600) // 60
-    seconds_remaining = seconds % 60
-    return days, hours, minutes, seconds_remaining
+        # plot_invariance_option_results(results_list)
+
+        st.divider()
+        with st.expander("Full data", expanded=False):
+            results_list
 
 
-def convert_to_frac(value):
+def hyper_level_analysis(results_list):
+    df_hyper_iqr_outliers = [(sws, r["outliers-hyperiors-most-iqr.csv"]) for sws, r in results_list.items()]
 
-    if value < 1:
+    total_number = sum([len(df) for sws, df in df_hyper_iqr_outliers])
+    st.metric("Total Hyper Poster Outliers", total_number)
+    st.metric("Average Hyper Poster Outliers Per System", round(total_number / len(df_hyper_iqr_outliers),2))
 
-        denominator = 1 / value
+    # Create a new list of dataframes with the 'sws' column added
+    df_hyper_iqr_outliers_with_sws = [(sws, df.assign(sws=sws)) for sws, df in df_hyper_iqr_outliers]
 
-        return r'$\frac{1}{' + f'{int(denominator)}' + r'}$'
+    # Merge all dataframes
+    merged_df_with_sws = pd.concat([df for _, df in df_hyper_iqr_outliers_with_sws])
 
-    return str(int(value))
+    # Get the top 5 options with the highest credible_interval_width
+    top_5_df_with_sws = merged_df_with_sws.nlargest(5, "credible_interval_width")
+    st.dataframe(top_5_df_with_sws)
+
+    for sws, df in df_hyper_iqr_outliers:
+        f"# {sws}"
+        st.dataframe(df)
+
+
+
+
+def plot_invariance_option_results(results_list):
+    invariant_ratios = [(sws, r["invariant-options.json"]["ratio_invar_options"]) for sws, r in results_list.items()]
+    ratio_lbl = "Ratio of Invariant Options"
+    df_opt_invar = pd.DataFrame(invariant_ratios, columns=["Software System", ratio_lbl])
+    df_opt_invar_sorted = df_opt_invar.sort_values(by=ratio_lbl)
+    st.dataframe(df_opt_invar_sorted)
+    df = df_opt_invar
+    # Set the style for the plot
+    sns.set(style="whitegrid")
+    # Create the violin plot with swarm scatters
+
+    scale = 3
+    ratio = 1/5
+    plt.figure(figsize=(2*scale, 3*scale*ratio), dpi=300)
+    violin_color = bayes_palette[0]
+    sns.violinplot(x=ratio_lbl, data=df,
+                   inner=None,
+                   bw_adjust=0.35,
+                   # cut=1,
+                   scale='width',
+                   linewidth=1.25,
+                   color=violin_color)
+
+    sns.swarmplot(x=ratio_lbl, data=df, color='k', alpha=1.0, edgecolor='w', linewidth=1.0)
+    # Customize the plot
+    plt.xlim(0.0, 1.0)
+    plt.xlabel("%s" % ratio_lbl)#, fontsize=14)
+    plt.ylabel("")
+    # Add grid lines
+    plt.grid(True, linestyle='--', linewidth=0.5)
+    # Remove the top and right spines for a cleaner look
+    sns.despine()
+    plt.tight_layout()
+    tmp_file = "invariant-poptions.pdf"
+    plt.savefig(tmp_file, bbox_inches='tight')
+    # plt.show()
+    st.pyplot(plt.gcf())
+    with st.expander(label="Get Your PDF Now COMPLETELY FREE!!!1!11!!", expanded=False):
+        embed_pdf(
+            tmp_file
+        )
 
 
 def draw_multitask_paper_plot(combined_df,     system_col="params.software-system",
@@ -540,7 +426,7 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
     with st.spinner("Waiting for plot to be rendered"):
         model_order = ["Lasso", "Bayesian", "Mean"]
         # bayes_palette = sns.color_palette("YlOrBr", 3)
-         # ["blue", "green", "red"] # sns.color_palette("flare", 3)
+        bayes_palette = ["#47AEED", "#398CBF",  "#2F729C"] # ["blue", "green", "red"] # sns.color_palette("flare", 3)
         model_colors = {
             # "Lasso": "blue",
             # "Bayesian": "green",

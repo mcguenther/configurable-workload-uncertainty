@@ -218,7 +218,7 @@ class NumPyroRegressor(ExperimentationModelBase):
         # pred = npPredictive(self.model, posterior_samples=posterior_samples, num_samples=n_samples, parallel=True)
         # numpyro currently ignores num_samples if different from number of posterior samples
         pred = npPredictive(
-            self.model, posterior_samples=posterior_samples, parallel=True
+            self.model, posterior_samples=posterior_samples, parallel=True,
         )
         rng_key_ = random.PRNGKey(0)
         y_pred = pred(rng_key_, *model_args, None)["observations"]
@@ -294,7 +294,7 @@ class NumPyroRegressor(ExperimentationModelBase):
                     "and shape",
                     shape,
                 )
-        original_total_influences = len(self.env_lbls) * len(self.feature_names)
+        original_total_influences = len(self.env_lbls) + len(self.env_lbls) * len(self.feature_names)
         p_loo = loo_data.p_loo
         relative_DOF = p_loo / original_total_influences
         DOF_shrinkage = (original_total_influences - p_loo) / original_total_influences

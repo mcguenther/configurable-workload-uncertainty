@@ -4,7 +4,8 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+single-trace-debugger/
+insights/
 # C extensions
 *.so
 

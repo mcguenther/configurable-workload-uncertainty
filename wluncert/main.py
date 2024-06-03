@@ -122,7 +122,7 @@ def main():
         # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
         # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
-        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
+        chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
 
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-pw"])
@@ -134,7 +134,7 @@ def main():
         # chosen_model_lbls.extend(["partial-pooling-mcmc-RHS"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-RHS-pw"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-pw"])
-        chosen_model_lbls.extend(["no-pooling-lin-pw"])
+        # chosen_model_lbls.extend(["no-pooling-lin-pw"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-extra-pw"])
 
         # chosen_model_lbls.extend(["cpooling-mcmc-1model", "partial-pooling-mcmc-extra", "no-pooling-rf"])
@@ -165,12 +165,12 @@ def main():
         # )
         train_sizes = (
             # 0.001,
-            0.125,
-            0.25,
+            # 0.125,
+            # 0.25,
             0.5,
-            0.75,
-            # 0.9,
-            1.0,
+            # 0.75,
+            # # 0.9,
+            # 1.0,
             # # 1.1,
             # 1.25,
             # 1.5,
@@ -184,11 +184,11 @@ def main():
         rnds = get_rep_ids(n_reps, num_reps, rep_offset)
 
         selected_data = (
-            # "jump3r",
+            "jump3r",
             # "H2",
             # "xz",  # bad results
             # "x264",  # bad results
-            "batik",
+            # "batik",
             # "dconvert",
             # "kanzi",
             # "lrzip",  # bad results
@@ -234,14 +234,17 @@ def main():
         # chosen_model_lbls.extend(["cpooling-lin"])
         # chosen_model_lbls.extend(["cpooling-rf"])
         # chosen_model_lbls.extend(["no-pooling-rf"])
-        # chosen_model_lbls.extend(["no-pooling-dummy"])
+        # # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
+
+        #FINALS
         # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
         # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
-        # # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
         # #
-        # chosen_model_lbls.extend(["model_lasso_reg_cpool"])
-        # chosen_model_lbls.extend(["model_lasso_reg_no_pool"])
+        chosen_model_lbls.extend(["model_lasso_reg_cpool"])
+        chosen_model_lbls.extend(["model_lasso_reg_no_pool"])
+        chosen_model_lbls.extend(["no-pooling-dummy"])
+        chosen_model_lbls.extend(["cpooling-dummy"])
 
         chosen_model_lbls.extend(["model_lassocv_reg_no_pool"])
         chosen_model_lbls.extend(["model_lassocv_reg_cpool"])
@@ -348,6 +351,7 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
     # model_lin_reg_poly = Poly
     dummy_proto = DummyRegressor()
     model_dummy = NoPoolingEnvModel(dummy_proto)
+    model_dummy_cpool = CompletePoolingEnvModel(dummy_proto)
     model_partial_extra_standardization = MCMCMultilevelPartial(
         plot=plot,
         **mcmc_kwargs,
@@ -487,6 +491,7 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
         "cpooling-lin": model_lin_reg_cpool,
         "cpooling-lin-pw": model_lin_reg_cpool_pw,
         "no-pooling-dummy": model_dummy,
+        "cpooling-dummy": model_dummy_cpool,
         "cpooling-rf": complete_pooling_rf,
         "no-pooling-mcmc-1model": model_no_pooling_combined,
         "no-pooling-mcmc-1model-pw": model_no_pooling_combined_pw,
