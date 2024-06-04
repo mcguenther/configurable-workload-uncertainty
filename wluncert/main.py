@@ -278,10 +278,6 @@ def main():
         replication_lbl=rep_lbl,
     )
     run_id = rep.run()
-    # if do_store:
-    #     experiment_base_path = rep.store()
-    #     al = Analysis(experiment_base_path)
-    #     al.run()
 
     # eval = Evaluation()
     print("DONE with experiment.")

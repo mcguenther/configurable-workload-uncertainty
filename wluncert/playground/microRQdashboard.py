@@ -21,6 +21,7 @@ def get_subfolders(parent_folder):
     return subfolders
 
 bayes_palette = ["#47AEED", "#398CBF",  "#2F729C"]
+comparison_palette = ["#BF393A"]
 @st.cache_data
 def read_and_combine_csv(subfolders):
     all_dfs = []
@@ -548,8 +549,8 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
             bpp: bayes_palette[1],
             bcp: bayes_palette[2],
             # "Mean": "dimgrey",
-            wanted_models["model_lassocv_reg_no_pool"]: "#BF393A",
-            wanted_models["model_lassocv_reg_cpool"]: "#BF393A",
+            wanted_models["model_lassocv_reg_no_pool"]: comparison_palette[0],
+            wanted_models["model_lassocv_reg_cpool"]: comparison_palette[0],
             # wanted_models["dummy"]: "black",
 
 

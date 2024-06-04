@@ -131,7 +131,7 @@ class NumpyroModelInsight:
         print(number_of_representing_wl)
         log_df, minimum_rep_set_size_from_saturation, df_results_screening = self.greedy_representation_set_generation(df, kld_threshold)
         # print(log_df)
-        self.plot_loss_differences(log_df, df_results_screening)
+        # self.plot_loss_differences(log_df, df_results_screening)
 
 
     def compute_representativeness_tensor(self):
@@ -162,54 +162,63 @@ class NumpyroModelInsight:
         reds_blues = sns.diverging_palette(240, 10, n=5, as_cmap=False)
         colors = [reds_blues[0], reds_blues[1], "white", reds_blues[3], reds_blues[4]]
         cmap = LinearSegmentedColormap.from_list("CustomRedBlue", colors)
+
         # Group by the "option" column
         options = df['option'].unique()
         for option in options:
             df_option = df[df['option'] == option]
 
-            # Create the heatmap data with all labels
-            labels = sorted(set(df_option['env']).union(set(df_option['represented_by_env'])))
-            heatmap_data = pd.pivot_table(df_option, values='kld', index='env', columns='represented_by_env',
-                                          fill_value=0)
-            heatmap_data = heatmap_data.reindex(index=labels, columns=labels)
+            # Create the heatmap data pivot table
+            heatmap_data = pd.pivot_table(df_option, values='kld', index='represented_by_env', columns='env', fill_value=0)
 
-            # Calculate the average KLD per column and sort columns by this average
-            col_means = heatmap_data.mean(axis=0)
-            sorted_cols = col_means.sort_values().index
-            heatmap_data = heatmap_data.reindex(columns=sorted_cols, index=sorted_cols)
+            # Calculate the number of cells below the threshold for each row
+            row_counts_below_threshold = (heatmap_data < threshold).sum(axis=1)
+
+            # Calculate the average KLD for each row
+            average_kld = heatmap_data.mean(axis=1)
+
+            # Combine these two metrics into a DataFrame for sorting
+            sorting_criteria = pd.DataFrame({
+                'count_below_threshold': row_counts_below_threshold,
+                'average_kld': average_kld
+            })
+
+            # Sort by count of cells below the threshold and then by average KLD
+            sorted_rows = sorting_criteria.sort_values(by=['count_below_threshold', 'average_kld'], ascending=[False, True]).index
+
+            # Reindex the heatmap data
+            heatmap_data = heatmap_data.reindex(index=sorted_rows, columns=sorted_rows)
 
             # Adjust the normalization with a tighter range for the upper threshold
             vmax = threshold * (1 + 10 ** -10)
             norm = TwoSlopeNorm(vmin=0, vcenter=threshold, vmax=vmax)
 
             ratio = 7./11
-            scale = 0.55
+            scale = 0.45
 
             plt.figure(figsize=(11*scale, 11*ratio*scale))
-            sns.heatmap(
+            ax = sns.heatmap(
                 heatmap_data, annot=True, fmt=".1f", cmap=cmap, norm=norm, cbar_kws={'label': 'KLD'},
                 linewidths=0.5, linecolor='white',
-                # annot_kws={'fontsize': 10 * 1.0},
             )
-            # plt.title(f"Heatmap for option: {option}", fontsize=16, fontweight='bold')
-            plt.xlabel("Represented By Workload")
-            plt.ylabel("Workload",
-                       # fontsize=14,
-                       # fontweight='bold'
-                       )
-            # plt.xticks(rotation=45, ha="right", fontsize=14)
+
+            # Remove ".wav" from tick labels
+            # ax.set_xticklabels([label.get_text().replace(".wav", "") for label in ax.get_xticklabels()])
+            ax.set_yticklabels([label.get_text().replace(".wav", "") for label in ax.get_yticklabels()])
+
+            plt.xlabel("Workload")
+            plt.ylabel("Represented By Workload")
+            # plt.xticks(rotation=45, ha='right')
             plt.xticks([])
-            plt.yticks(rotation=0)#, fontsize=14)
+            plt.yticks(rotation=0)
             plt.tight_layout()
-            # Save the heatmap as a PDF file
-            # plt.savefig(f"heatmap_{option}.pdf", format='pdf')
+
             log_figure_pdf(f"heatmap_{option}")
-            # plt.show()
 
             # Generate KDE and histogram plot for the KLD values of the current option
             plt.figure(figsize=(18, 8))
             sns.kdeplot(df_option['kld'], fill=True, color='blue', bw_adjust=0.07, label="KDE")
-            bin_edges = np.arange(0, df_option['kld'].max() + 0.05, 0.05)  # adjust the bin size as needed
+            bin_edges = np.arange(0, df_option['kld'].max() + 0.05, 0.05)
 
             # Set x-ticks to match histogram bin edges
             plt.xticks(bin_edges)
@@ -219,11 +228,11 @@ class NumpyroModelInsight:
             plt.ylabel("Density / Frequency", fontsize=14, fontweight='bold')
             plt.xlim((0.05, 2.0))
 
-
             plt.legend()
             plt.tight_layout()
-            # Save the KDE and histogram plot as a PDF file
             log_figure_pdf(f"kde_histogram_{option}")
+
+
 
     def sus_out_options(self, kl_threshold = 1.0):
         (
@@ -331,8 +340,8 @@ class NumpyroModelInsight:
         upper_bound = Q3 + 1.5 * IQR
         # Schritt 3: Ausreißer identifizieren
         outliers = df[
-            (df[outlier_value_col] < lower_bound)
-            | (df[outlier_value_col] > upper_bound)
+            (df[outlier_value_col] > upper_bound)
+            # | (df[outlier_value_col] < lower_bound)
         ]
         return outliers
 
@@ -370,7 +379,6 @@ class NumpyroModelInsight:
             # Melt the DataFrame for the current pair
             size_kw = {
                 "fill":True,
-                "thresh": 0.05,
             }
             df_long = df.melt(var_name="Workload", value_name="Standard influence")
 
@@ -614,7 +622,6 @@ class NumpyroModelInsight:
     def greedy_representation_set_generation(self, df, threshold):
         """Select workloads progressively until all workloads are represented and log the loss."""
         results_screening = []
-        saturation_percentage = 0.10
         no_influences_original = len(df)
         for workload in df['represented_by_env'].unique():
             selected_workloads = []
@@ -636,25 +643,30 @@ class NumpyroModelInsight:
                 # then, we average over these minimum klds to get an expectation of the information loss for that option when encountering a new environment
                 # the last mean averages over all options to account for variations in option count per system
                 kld_remaining = remaining_df.loc[remaining_df["represented_by_env"].isin(selected_workloads)].groupby(["option", "env"])["kld"].min().groupby(["option"]).sum().sum()
+
                 kld_remaining_expected_per_env = remaining_df.loc[remaining_df["represented_by_env"].isin(selected_workloads)].groupby(["option", "env"])["kld"].mean().mean()
             else:
                 kld_remaining = 0
                 kld_remaining_expected_per_env = 0
+            kld_remaining_whole_df = df.loc[df["represented_by_env"].isin(selected_workloads)].groupby(["option", "env"])["kld"].min().groupby(["option"]).sum().sum()
 
             kld_reduction = None
             loss_after_first_env = kld_remaining
             minimum_rep_set_size_from_saturation = 1
             prev_cum_kld = kld_remaining
             no_remaining_opt = len(remaining_df["option"].unique())
+            no_remaining_envs = len(remaining_df["env"].unique())
             # Log the step number, best workload, and information loss
             results_screening.append({
                 'Step': 1,
                 'Selected Workload': workload,
                 'Number of Represented Workload-Expcific Influences': n_covered,
-                'Information Loss Remaining': kld_remaining,
+                'Information Loss Within Remaining Influences': kld_remaining,
+                'Information Loss': kld_remaining_whole_df,
                 'Expected Information Loss Remaining Per Option Per Env': kld_remaining_expected_per_env,
                 'Information Loss Reduction': kld_reduction,
                 'Unfinished Options': no_remaining_opt,
+                'Unrepresented Envs': no_remaining_envs,
             })
 
         df_results_screening = pd.DataFrame(results_screening)
@@ -664,15 +676,18 @@ class NumpyroModelInsight:
         selected_workloads = []
         remaining_df = df.copy()
         n_opts = len(df["option"].unique())
+        n_envs = len(df["env"].unique())
 
         results = [
             {
                 'Step': 0,
                 'Selected Workload': "No workloads",
                 'Number of Represented Workload-Expcific Influences': None,
-                'Information Loss Remaining': np.inf,
+                'Information Loss Within Remaining Influences': np.inf,
+                'Information Loss': np.inf,
                 'Information Loss Reduction': None,
                 'Unfinished Options': n_opts,
+                'Unrepresented Envs': n_envs,
             }
 
         ]
@@ -681,12 +696,24 @@ class NumpyroModelInsight:
         prev_cum_kld = np.inf
         minimum_rep_set_size_from_saturation = None
         loss_after_first_env = None
+        saturation_percentage = 0.10
         while not remaining_df.empty:
             # Find the workload that represents the most others
             counts = remaining_df[remaining_df['kld'] < threshold].groupby('represented_by_env')['kld'].count()
             if counts.empty:
                 break
-            best_workload = counts.idxmax()
+
+
+            remaining_klds = {}
+            for workload in df['represented_by_env'].unique():
+                if workload not in selected_workloads:
+                    kld_remaining = remaining_df.loc[remaining_df["represented_by_env"].isin([*selected_workloads, workload])].groupby(["option", "env"])["kld"].min().groupby(["option"]).sum().sum()
+                    remaining_klds[workload] = kld_remaining
+            best_workload = min(remaining_klds, key=remaining_klds.get)
+
+
+            # best_workload = counts.idxmax()
+
             # Add the best workload to the selected list
             selected_workloads.append(best_workload)
             # Calculate the loss after each step
@@ -710,8 +737,11 @@ class NumpyroModelInsight:
                 kld_remaining = remaining_df.loc[remaining_df["represented_by_env"].isin(selected_workloads)].groupby(["option", "env"])["kld"].min().groupby(["option"]).sum().sum()
                 kld_remaining_expected_per_env = remaining_df.loc[remaining_df["represented_by_env"].isin(selected_workloads)].groupby(["option", "env"])["kld"].mean().mean()
             else:
+
                 kld_remaining = 0
                 kld_remaining_expected_per_env = 0
+
+            kld_remaining_whole_df = df.loc[df["represented_by_env"].isin(selected_workloads)].groupby(["option", "env"])["kld"].min().groupby(["option"]).sum().sum()
             if prev_cum_kld == np.inf:
                 kld_reduction = None
                 loss_after_first_env = kld_remaining
@@ -723,6 +753,7 @@ class NumpyroModelInsight:
                     minimum_rep_set_size_from_saturation = len(selected_workloads)
             prev_cum_kld = kld_remaining
             no_remaining_opt = len(remaining_df["option"].unique())
+            no_remaining_envs = len(remaining_df["env"].unique())
             # else:
             #     # kld_remaining = 0.0
             #     kld_reduction = prev_cum_kld
@@ -733,10 +764,13 @@ class NumpyroModelInsight:
                 'Step': step,
                 'Selected Workload': best_workload,
                 'Number of Represented Workload-Expcific Influences': n_covered,
-                'Information Loss Remaining': kld_remaining,
+
+                'Information Loss Within Remaining Influences': kld_remaining,
+                'Information Loss': kld_remaining_whole_df,
                 'Expected Information Loss Remaining Per Option Per Env': kld_remaining_expected_per_env,
                 'Information Loss Reduction': kld_reduction,
                 'Unfinished Options': no_remaining_opt,
+                'Unrepresented Envs': no_remaining_envs,
             })
 
             # Remove all workloads that the best workload represents well (kld < threshold)

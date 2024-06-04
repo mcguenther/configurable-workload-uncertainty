@@ -13,15 +13,16 @@ import glob
 import matplotlib.pyplot as plt
 import time
 from fractions import Fraction
-
+import numpy as np
 import streamlit.components.v1 as components
 import base64
-from microRQdashboard import get_subfolders, read_and_combine_csv, embed_pdf, bayes_palette
+from microRQdashboard import get_subfolders, read_and_combine_csv, embed_pdf, bayes_palette, comparison_palette
 
 def read_sws_insights(root_dir):
     interesting_files = [
         "representation-selection-log.csv",
         "representation-selection-log-screening-single-rep-sets.csv",
+        "kldivs-towards-hyperior-per-option.csv",
         "outliers-hyperiors-most-iqr.csv",
         "invariant-options.json",
         "metrics.json",
@@ -85,7 +86,8 @@ def main():
                 #          "240318-14-27-26-aggregation-WLFgXnWyqc",
                 #          "240319-11-56-40-aggregation-gn5W8tJhaY"],
                 default=[
-                        "240601-22-15-26-2024-06-01_22-15-26-3hEyEdUK8d",
+                        # "240601-22-15-26-2024-06-01_22-15-26-3hEyEdUK8d",
+                        "240603-23-57-17-2024-06-03_23-57-17-bQ232vvGXt",
                          ],
             )
 
@@ -106,14 +108,11 @@ def main():
         st.error("please check config in sidebar")
         exit(21)
     else:
-        analyses = {
-            "hyper level": hyper_level_analysis,
-            "invariance": plot_invariance_option_results,
-
-        }
 
         selected_systems = st.multiselect("Subselect", results_list, default=[f for f in results_list if "artif" not in f and "kanzi" not in f])
         results_list = {k:v for k,v in results_list.items() if k in selected_systems}
+
+        st.write("# hello world")
 
 
         # pdf_paths = [(sws, r["kde_paths"]) for sws, r in results_list.items()]
@@ -130,7 +129,13 @@ def main():
 
 
 
-        tabs = st.tabs(tabs= analyses)
+        analyses = {
+            "representativeness_plot": representativeness_plot,
+            "hyper level": hyper_level_analysis,
+            "invariance": plot_invariance_option_results,
+
+        }
+        tabs = st.tabs(tabs= analyses, )
 
         for tab, func in zip(tabs, analyses.values()):
             with tab:
@@ -142,6 +147,115 @@ def main():
         st.divider()
         with st.expander("Full data", expanded=False):
             results_list
+
+def get_first_value_below_threshold(df, threshold, label):
+    for index, value in enumerate(df[label]):
+        if value:
+            if value < threshold:
+                return index, value
+    return len(df), 0
+
+def representativeness_plot(results_list):
+
+    rep_dfs = [(sws, r["representation-selection-log.csv"]) for sws, r in results_list.items()]
+    rep_screening_dfs = [(sws, r["representation-selection-log-screening-single-rep-sets.csv"]) for sws, r in results_list.items()]
+    res_df = pd.DataFrame(columns=['sws', 'Average Initial Information Loss', 'Optimal Initial Information Loss','Opt Init Loos per Influence', 'Rep. Set Size',
+     'Loss with rep set', 'Loss with rep set per Infl.' ,'no. of unfinished options', 'unf opt proz', 'no. of Unrep Envs', 'unrep envs proz', 'max rep set size'])
+    # st.write(rep_dfs)
+
+    loss_str = 'Information Loss'
+    for pos in range(len(rep_dfs)):
+
+        sws = rep_dfs[pos][0]
+        rep_df = rep_dfs[pos][1]
+        rep_df['newStep']= rep_df['Step'] - 1
+        rep_screening_df = rep_screening_dfs[pos][1]
+        min_start = rep_screening_df['Information Loss'].min()
+        num_infl = (rep_df.loc[0]["Unfinished Options"]*rep_df.loc[0]["Unrepresented Envs"])
+
+
+        mean_start_loss = rep_screening_df[loss_str].mean()
+        stop_step, stop_value = get_first_value_below_threshold(rep_df, (0.1 * rep_screening_df[loss_str].min()), 'Information Loss Reduction')
+        res_df.loc[pos] = [sws, mean_start_loss, min_start, min_start/num_infl,
+                           (stop_step-1), rep_df.loc[stop_step-1][loss_str], rep_df.loc[stop_step-1][loss_str]/num_infl,
+                           rep_df.loc[stop_step-1]["Unfinished Options"], round(100 * rep_df.loc[stop_step-1]["Unfinished Options"] / rep_df.loc[0]["Unfinished Options"]),
+                           rep_df.loc[stop_step-1]["Unrepresented Envs"], round(100 * rep_df.loc[stop_step-1]["Unrepresented Envs"] / rep_df.loc[0]["Unrepresented Envs"]),
+                           (len(rep_df)-1)]
+
+
+    # Compute the mean for each column
+    average_row = res_df.mean(numeric_only=True).to_frame().T
+
+    # Append the average row to the DataFrame
+    average_row['sws'] = 'Average'  # Or any other label you want to give this row
+    res_df = pd.concat([res_df, average_row], ignore_index=True)
+
+    st.write("# Result Table")
+    st.dataframe(res_df)
+
+    st.write("## Latex")
+    latex_str = res_df.to_latex(index=True, multirow=True, multicolumn=True,
+                                        multicolumn_format='c', column_format='r' + 'r' * res_df.shape[1],
+                                        escape=False,
+                                        float_format="{:0.1f}".format)
+
+    st.latex(latex_str)
+
+
+    st.write("# PLOTS")
+
+    for pos in range(len(rep_dfs)):
+        sns.set_style("whitegrid")
+        # sns.set_context("talk", rc={"axes.labelsize": "0.7", "xtick.labelsize": "0.7", "ytick.labelsize": "0.7", "legend.fontsize": "0.7", "axes.titlesize": "0.7"})
+        sns.set_context("talk", font_scale=0.8)
+
+        sws = rep_dfs[pos][0]
+        st.write(f"# SWS: {sws}")
+        rep_df = rep_dfs[pos][1]
+        rep_df['newStep']= rep_df['Step'] - 1 #fix position swarmplot
+        rep_screening_df = rep_screening_dfs[pos][1]
+        mean_start_loss = rep_screening_df[loss_str].mean()
+        stop_step, stop_value = get_first_value_below_threshold(rep_df, (0.1 * rep_screening_df[loss_str].min()), 'Information Loss Reduction')
+        # fig = plt.figure(figsize=(5,1.75))
+        fig = plt.figure(figsize=(6,2.05))
+        st.dataframe(rep_df)
+        line_color = bayes_palette[0]
+        swarm_color = comparison_palette[0]
+        sns.swarmplot(data=rep_screening_df, x="Step", y=loss_str, color=swarm_color)
+
+        sns.lineplot(data=rep_df, x="newStep", y=loss_str, marker="o", color=line_color)
+        #sns.scatterplot(data=rep_screening_df, x="Step", y=loss_str, color=swarm_color)
+        #plt.axhline(y=mean_start_loss, color="orange", linestyle='--', label="Mean Starting Information Loss")
+        set_size_color = "#444444"
+        plt.axvline(x=(stop_step-2), color=set_size_color, linestyle='--', label=f"Number Envs in Set") # -1 for last step, -1 for fix swarmplot
+        plt.xticks(ticks=rep_df['newStep'], labels=rep_df['Step'])
+        # plt.title(f"{sws}")
+        plt.xlabel("Step")
+        plt.ylabel("Information Loss")
+        plt.ylim(bottom=0)
+        plt.xlabel("Representation Set Size")
+        plt.xlim(left=-0.85)
+        sns.despine(left=True)
+        #plt.legend()
+        tmp_file= f"log_{sws}.pdf"
+        plt.savefig(tmp_file, bbox_inches='tight')
+        # plt.show()
+        # st.pyplot(plt.gcf())
+        with st.expander(label="Get Your PDF Now COMPLETELY FREE!!!1!11!!", expanded=False):
+            embed_pdf(
+                tmp_file
+            )
+        st.pyplot(fig=fig)
+        min_start = rep_screening_df['Information Loss'].min()
+        # res_df.loc[pos] = [sws, mean_start_loss, min_start,
+        #                    (stop_step-1),
+        #                    rep_df.loc[stop_step-1]["Unfinished Options"], round(100 * rep_df.loc[stop_step-1]["Unfinished Options"] / rep_df.loc[0]["Unfinished Options"]),
+        #                    rep_df.loc[stop_step-1]["Unrepresented Envs"], round(100 * rep_df.loc[stop_step-1]["Unrepresented Envs"] / rep_df.loc[0]["Unrepresented Envs"]),
+        #                    (len(rep_df)-1)]
+
+
+
+
 
 
 def hyper_level_analysis(results_list):
@@ -166,9 +280,52 @@ def hyper_level_analysis(results_list):
         st.dataframe(df)
 
 
-
-
 def plot_invariance_option_results(results_list):
+    kldivs_raw_data = {sws: r["kldivs-towards-hyperior-per-option.csv"] for sws, r in results_list.items()}
+    tups = []
+    plt.close()
+    for sws, sws_kld_df in kldivs_raw_data.items():
+
+        st.write(f"## {sws} for KLDs")
+
+        n_envs = sws_kld_df.groupby("option")["kldiv"].count()[0]
+        st.write(n_envs)
+        count_variant_influences = sws_kld_df.loc[sws_kld_df["kldiv"] > 1.].groupby("option")["kldiv"].count() / n_envs
+        st.write("Number of informative influences")
+        st.write(count_variant_influences.to_dict())
+
+        new_tups = [(sws, option, kld) for option, kld in count_variant_influences.items()]
+        tups.extend(new_tups)
+
+    df_kld_informs = pd.DataFrame(tups, columns=["Software System", "Option", "KLD"])
+    st.dataframe(df_kld_informs)
+    n_only_informative = np.sum(df_kld_informs["KLD"] == 1.0)
+    st.write(f"Number of options with only informative influences: {n_only_informative}")
+    st.dataframe(df_kld_informs[df_kld_informs["KLD"] == 1.0].groupby("Option").count())
+
+
+
+
+    plt.figure(figsize=(8.5, 3.5))
+    sns.swarmplot(data=df_kld_informs, x="KLD", hue="Software System", size=8)
+    plt.xlabel("Share of Informative Influences")
+
+    # Customize legend
+    plt.legend(title='Software System', bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+
+    plt.tight_layout()
+    st.pyplot(plt.gcf())
+    tmp_file = "sws-kldevs.pdf"
+    plt.savefig(tmp_file, bbox_inches='tight')
+
+    with st.expander(label="Get Your PDF Now COMPLETELY FREE!!!1!11!!", expanded=False):
+        embed_pdf(tmp_file)
+
+
+
+
+
+
     invariant_ratios = [(sws, r["invariant-options.json"]["ratio_invar_options"]) for sws, r in results_list.items()]
     ratio_lbl = "Ratio of Invariant Options"
     df_opt_invar = pd.DataFrame(invariant_ratios, columns=["Software System", ratio_lbl])
