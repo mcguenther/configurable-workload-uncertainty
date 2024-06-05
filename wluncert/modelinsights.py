@@ -31,12 +31,12 @@ class NumpyroModelInsight:
     def plot_overview(self):
         # az.plot_posterior(self.az_data)
         # plt.show()
-        kld_threshold = 0.5
-        self.plot_representativeness_matrices(kld_threshold=kld_threshold)
-        kld_threshold_varying_from_hyperior = 1.0
-        self.sus_out_options(kl_threshold=kld_threshold_varying_from_hyperior)
         self.plot_single_hyperiors()
-        self.plot_multiple_hyperior()
+        # kld_threshold = 0.5
+        # self.plot_representativeness_matrices(kld_threshold=kld_threshold)
+        # kld_threshold_varying_from_hyperior = 1.0
+        # self.sus_out_options(kl_threshold=kld_threshold_varying_from_hyperior)
+        # self.plot_multiple_hyperior()
 
     def get_RV_names(self):
         posterior = self.get_posterior_data()
@@ -165,72 +165,61 @@ class NumpyroModelInsight:
 
         # Group by the "option" column
         options = df['option'].unique()
-        for option in options:
-            df_option = df[df['option'] == option]
-
-            # Create the heatmap data pivot table
-            heatmap_data = pd.pivot_table(df_option, values='kld', index='represented_by_env', columns='env', fill_value=0)
-
-            # Calculate the number of cells below the threshold for each row
-            row_counts_below_threshold = (heatmap_data < threshold).sum(axis=1)
-
-            # Calculate the average KLD for each row
-            average_kld = heatmap_data.mean(axis=1)
-
-            # Combine these two metrics into a DataFrame for sorting
-            sorting_criteria = pd.DataFrame({
-                'count_below_threshold': row_counts_below_threshold,
-                'average_kld': average_kld
-            })
-
-            # Sort by count of cells below the threshold and then by average KLD
-            sorted_rows = sorting_criteria.sort_values(by=['count_below_threshold', 'average_kld'], ascending=[False, True]).index
-
-            # Reindex the heatmap data
-            heatmap_data = heatmap_data.reindex(index=sorted_rows, columns=sorted_rows)
-
-            # Adjust the normalization with a tighter range for the upper threshold
-            vmax = threshold * (1 + 10 ** -10)
-            norm = TwoSlopeNorm(vmin=0, vcenter=threshold, vmax=vmax)
-
-            ratio = 7./11
-            scale = 0.45
-
-            plt.figure(figsize=(11*scale, 11*ratio*scale))
-            ax = sns.heatmap(
-                heatmap_data, annot=True, fmt=".1f", cmap=cmap, norm=norm, cbar_kws={'label': 'KLD'},
-                linewidths=0.5, linecolor='white',
-            )
-
-            # Remove ".wav" from tick labels
-            # ax.set_xticklabels([label.get_text().replace(".wav", "") for label in ax.get_xticklabels()])
-            ax.set_yticklabels([label.get_text().replace(".wav", "") for label in ax.get_yticklabels()])
-
-            plt.xlabel("Workload")
-            plt.ylabel("Represented By Workload")
-            # plt.xticks(rotation=45, ha='right')
-            plt.xticks([])
-            plt.yticks(rotation=0)
-            plt.tight_layout()
-
-            log_figure_pdf(f"heatmap_{option}")
-
-            # Generate KDE and histogram plot for the KLD values of the current option
-            plt.figure(figsize=(18, 8))
-            sns.kdeplot(df_option['kld'], fill=True, color='blue', bw_adjust=0.07, label="KDE")
-            bin_edges = np.arange(0, df_option['kld'].max() + 0.05, 0.05)
-
-            # Set x-ticks to match histogram bin edges
-            plt.xticks(bin_edges)
-            plt.hist(df_option['kld'], bins=bin_edges, alpha=0.5, label='Histogram')
-            plt.title(f"KDE and Histogram of KLD values - option: {option}", fontsize=16, fontweight='bold')
-            plt.xlabel("KLD", fontsize=14, fontweight='bold')
-            plt.ylabel("Density / Frequency", fontsize=14, fontweight='bold')
-            plt.xlim((0.05, 2.0))
-
-            plt.legend()
-            plt.tight_layout()
-            log_figure_pdf(f"kde_histogram_{option}")
+        with sns.plotting_context("talk"):
+            for option in options:
+                df_option = df[df['option'] == option]
+                # Create the heatmap data pivot table
+                heatmap_data = pd.pivot_table(df_option, values='kld', index='represented_by_env', columns='env', fill_value=0)
+                # Calculate the number of cells below the threshold for each row
+                row_counts_below_threshold = (heatmap_data < threshold).sum(axis=1)
+                # Calculate the average KLD for each row
+                average_kld = heatmap_data.mean(axis=1)
+                # Combine these two metrics into a DataFrame for sorting
+                sorting_criteria = pd.DataFrame({
+                    'count_below_threshold': row_counts_below_threshold,
+                    'average_kld': average_kld
+                })
+                # Sort by count of cells below the threshold and then by average KLD
+                sorted_rows = sorting_criteria.sort_values(by=['count_below_threshold', 'average_kld'], ascending=[False, True]).index
+                # Reindex the heatmap data
+                heatmap_data = heatmap_data.reindex(index=sorted_rows, columns=sorted_rows)
+                # Adjust the normalization with a tighter range for the upper threshold
+                vmax = threshold * (1 + 10 ** -10)
+                norm = TwoSlopeNorm(vmin=0, vcenter=threshold, vmax=vmax)
+                ratio = 7./11
+                ratio = 5.5/11
+                scale = 0.55
+                plt.figure(figsize=(11*scale, 11*ratio*scale))
+                ax = sns.heatmap(
+                    heatmap_data, annot=True, fmt=".1f", cmap=cmap, norm=norm, cbar_kws={'label': 'KLD'},
+                    linewidths=0.5,
+                    linecolor='white',
+                    annot_kws={"size": 14}
+                )
+                # Remove ".wav" from tick labels
+                # ax.set_xticklabels([label.get_text().replace(".wav", "") for label in ax.get_xticklabels()])
+                ax.set_yticklabels([label.get_text().replace(".wav", "") for label in ax.get_yticklabels()])
+                plt.xlabel("Workload")
+                plt.ylabel("Represented By")
+                # plt.xticks(rotation=45, ha='right')
+                plt.xticks([])
+                plt.yticks(rotation=0)
+                plt.tight_layout()
+                log_figure_pdf(f"heatmap_{option}")
+                # Generate KDE and histogram plot for the KLD values of the current option
+                plt.figure(figsize=(18, 8))
+                sns.kdeplot(df_option['kld'], fill=True, color='blue', bw_adjust=0.07, label="KDE")
+                bin_edges = np.arange(0, df_option['kld'].max() + 0.05, 0.05)
+                # Set x-ticks to match histogram bin edges
+                plt.xticks(bin_edges)
+                plt.hist(df_option['kld'], bins=bin_edges, alpha=0.5, label='Histogram')
+                plt.title(f"KDE and Histogram of KLD values - option: {option}", fontsize=16, fontweight='bold')
+                plt.xlabel("KLD", fontsize=14, fontweight='bold')
+                plt.ylabel("Density / Frequency", fontsize=14, fontweight='bold')
+                plt.xlim((0.05, 2.0))
+                plt.legend()
+                plt.tight_layout()
+                log_figure_pdf(f"kde_histogram_{option}")
 
 
 
@@ -364,69 +353,68 @@ class NumpyroModelInsight:
                 "Length of var_names, hyper_samples_list, and df_list must be the same"
             )
 
-        # Loop over each pair of plots and populate the grid
-        for i, (base_hyper_samples, df, var_name) in enumerate(
-                zip(hyper_samples_list, df_list, var_names)
-        ):
-
-            scale=1.7
-            aspect = 1.0
-            # Create a figure with the appropriate number of subplots
-            fig, axes = plt.subplots(2, 1, figsize=(scale*aspect, scale * 2), sharex=True, sharey=False)
-            # plt.suptitle(var_name)
-            # Flatten the axes array for easy iteration
-            axes = axes.flatten()
-            # Melt the DataFrame for the current pair
-            size_kw = {
-                "fill":True,
-            }
-            df_long = df.melt(var_name="Workload", value_name="Standard influence")
-
-            # The top plot - single distribution without hue
-            top_index = 0
-            lower_index = 1
-            # Check if we've filled all the subplots
-            # if lower_index >= total_subplots:
-            #     break
-            ax_top = axes[top_index]
-            sns.kdeplot(base_hyper_samples, ax=ax_top, color="gray", **size_kw)
-            # ax_top.set_title(f"Hyper Prior")
-            ax_top.set_title(f"General")
-            ax_top.set_xlabel("")  # Hide x-axis label for the top plot
-            ax_top.set_yticks([])
-
-            # The bottom plot - displot with different hues
-            ax_bottom = axes[lower_index]
-            do_legend = False #True # i==0
-            sns_ax = sns.kdeplot(
-                data=df_long, x="Standard influence", hue="Workload", ax=ax_bottom,legend=do_legend,
-                palette="colorblind", **size_kw
-
-            )
-
-            # sns.move_legend(
-            #     sns_ax,
-            #     "center right",
-            #     bbox_to_anchor=(-0.005, 0.5),
-            #     # ncol=3,
-            #     # title=None,
-            #     frameon=True,
-            #     fancybox=True,
-            # )
-
-            ax_bottom.set_title(f"Specific")
-            # ax_bottom.set_title(f"By Workload")
-            ax_bottom.set_xlabel("Influence")
-            ax_bottom.set_yticks([])
-
-            # # Hide x-axis label for all but the bottom row plots
-            # if (2 * i + 1) // columns < (rows - 1) * 2:
-            #     ax_bottom.set_xlabel("")
-
-            plt.tight_layout()
-            log_figure_pdf(f"hyperiors-{var_name}")
-            # plt.show()
-            # plt.close(fig)
+        with sns.plotting_context("paper"):
+            # Loop over each pair of plots and populate the grid
+            for i, (base_hyper_samples, df, var_name) in enumerate(
+                    zip(hyper_samples_list, df_list, var_names)
+            ):
+                scale=1.5
+                aspect = 1.0
+                # Create a figure with the appropriate number of subplots
+                fig, axes = plt.subplots(2, 1, figsize=(scale*aspect, scale * 2), sharex=True, sharey=False)
+                # plt.suptitle(var_name)
+                # Flatten the axes array for easy iteration
+                axes = axes.flatten()
+                # Melt the DataFrame for the current pair
+                size_kw = {
+                    "fill":True,
+                }
+                df_long = df.melt(var_name="Workload", value_name="Standard influence")
+                # The top plot - single distribution without hue
+                top_index = 0
+                lower_index = 1
+                # Check if we've filled all the subplots
+                # if lower_index >= total_subplots:
+                #     break
+                ax_top = axes[top_index]
+                sns.kdeplot(base_hyper_samples, ax=ax_top, color="gray",
+                            cut=-4,
+                            **size_kw)
+                # ax_top.set_title(f"Hyper Prior")
+                ax_top.set_title(f"General")
+                ax_top.set_xlabel("")  # Hide x-axis label for the top plot
+                ax_top.set_yticks([])
+                # The bottom plot - displot with different hues
+                ax_bottom = axes[lower_index]
+                do_legend = False #True # i==0
+                sns_ax = sns.kdeplot(
+                    data=df_long, x="Standard influence", hue="Workload", ax=ax_bottom,legend=do_legend,
+                    palette="colorblind",
+                    #multiple="fill",
+                    cut=-4,
+                    **size_kw
+                )
+                # sns.move_legend(
+                #     sns_ax,
+                #     "center right",
+                #     bbox_to_anchor=(-0.005, 0.5),
+                #     # ncol=3,
+                #     # title=None,
+                #     frameon=True,
+                #     fancybox=True,
+                # )
+                ax_bottom.set_title(f"Specific")
+                # ax_bottom.set_title(f"By Workload")
+                ax_bottom.set_xlabel("Influence")
+                ax_bottom.set_yticks([])
+                ax_bottom.set_ylabel("")
+                ax_top.set_ylabel("")
+                sns.despine(left=True)
+                # # Hide x-axis label for all but the bottom row plots
+                # if (2 * i + 1) // columns < (rows - 1) * 2:
+                #     ax_bottom.set_xlabel("")
+                plt.tight_layout()
+                log_figure_pdf(f"hyperiors-{var_name}")
 
 
         # plt.show()

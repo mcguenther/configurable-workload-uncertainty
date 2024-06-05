@@ -160,22 +160,37 @@ def representativeness_plot(results_list):
     rep_dfs = [(sws, r["representation-selection-log.csv"]) for sws, r in results_list.items()]
     rep_screening_dfs = [(sws, r["representation-selection-log-screening-single-rep-sets.csv"]) for sws, r in
                          results_list.items()]
-    res_df = pd.DataFrame(columns=['sws', 'Average Initial Information Loss', 'Optimal Initial Information Loss',
-                                   'Opt Init Loss per Influence', 'Loss reduce 2nd Workload in proz', 'Rep. Set Size',
-                                   'Loss with rep set', 'Loss with rep set per Infl.', 'no. of unfinished options',
-                                   'unf opt proz', 'no. of Unrep Envs', 'unrep envs proz', 'max rep set size'])
+    initial_information_loss = 'Average Initial Information Loss'
+    optimal_init_inf_loss = 'Optimal Initial Information Loss'
+    opt_init_loss_per_influence = 'Optimal Expected Initial Loss per Influence'
+    loss_reduction_for_second_wl = 'Loss reduction with 2nd Workload in percent'
+    rep_set_size = 'Representative Set Size'
+    loss_with_rep_set = 'Loss with Representative Set Size'
+    loss_with_re_set_per_infl = 'Expected Loss with Representative Set Size per Influence'
+    num_unfinished_options = 'Number of Unfinished Options'
+    relative_num_unfinished_options = 'Relative Number of Unfinished Options'
+    num_unrepr_envs = 'Number of Unfinished Environments'
+    rel_num_unrep_envs = 'Relative Number of Unfinished Environments'
+    comprehensive_rep_set_size = 'Comprehensive Representative Set Size'
+    sws_lbl = 'Software System'
+    res_df = pd.DataFrame(columns=[sws_lbl, initial_information_loss, optimal_init_inf_loss,
+                                   opt_init_loss_per_influence, loss_reduction_for_second_wl, rep_set_size,
+                                   loss_with_rep_set, loss_with_re_set_per_infl, num_unfinished_options,
+                                   relative_num_unfinished_options, num_unrepr_envs, rel_num_unrep_envs, comprehensive_rep_set_size])
     # st.write(rep_dfs)
 
     loss_str = 'Information Loss'
+    systems_order = ['jump3r', 'dconvert', 'H2', 'batik', 'xz', 'lrzip', 'x264', 'z3', 'VP9', 'x265']
+
     for pos in range(len(rep_dfs)):
         sws = rep_dfs[pos][0]
         rep_df = rep_dfs[pos][1]
         rep_df['newStep'] = rep_df['Step'] - 1
         rep_screening_df = rep_screening_dfs[pos][1]
-        min_start = rep_screening_df['Information Loss'].min()
+        min_start = rep_screening_df[loss_str].min()
         num_infl = (rep_df.loc[0]["Unfinished Options"] * rep_df.loc[0]["Unrepresented Envs"])
-        max_start = rep_screening_df['Information Loss'].max()
-        st.write(f"Max start: {max_start}")
+        max_start = rep_screening_df[loss_str].max()
+        st.write(f"Max start {sws}: {max_start}")
         reduce2nd = round(100 * (rep_df.loc[2]['Information Loss Reduction']) / rep_df.loc[1][loss_str])
 
         mean_start_loss = rep_screening_df[loss_str].mean()
@@ -201,20 +216,54 @@ def representativeness_plot(results_list):
     average_row = res_df.mean(numeric_only=True).to_frame().T
 
     # Append the average row to the DataFrame
-    average_row['sws'] = 'Average'  # Or any other label you want to give this row
+    average_row[sws_lbl] = 'Average'  # Or any other label you want to give this row
     res_df = pd.concat([res_df, average_row], ignore_index=True)
+
+    # Reorder the DataFrame according to the systems_order list
+    res_df[sws_lbl] = pd.Categorical(res_df[sws_lbl], categories=systems_order + ['Average'], ordered=True)
+    res_df = res_df.sort_values(sws_lbl)
+    res_df = res_df.reset_index().drop(columns=["index"])
 
     st.write("# Result Table")
     st.dataframe(res_df)
 
     st.write("## Latex")
-    latex_str = res_df.to_latex(index=True, multirow=True, multicolumn=True,
-                                multicolumn_format='c', column_format='r' + 'r' * res_df.shape[1],
-                                escape=False,
-                                float_format="{:0.1f}".format)
+    column_width = "1.0cm"
+
+    # Create the LaTeX string with right-aligned columns
+    latex_str = res_df.to_latex(
+        index=False,
+        multirow=True,
+        multicolumn=True,
+        multicolumn_format='c',
+        escape=False,
+        float_format="{:0.1f}".format,
+        column_format=''.join([f'>{{\\raggedleft\\arraybackslash}}p{{{column_width}}}' for _ in range(res_df.shape[1])])
+    )
+
+    # Manually adjust the header cells to be centered
+    header_columns = res_df.columns
+    header_str = ' & '.join([f'\\multicolumn{{1}}{{>{{\\centering\\arraybackslash}}p{{{column_width}}}}}{{{col}}}' for col in header_columns])
+    latex_str = latex_str.replace(' & '.join(header_columns) + ' \\\\', header_str + ' \\\\')
+
+    # Output the modified LaTeX string
+    # st.write(latex_str)
+    # Adding \midrule before the last row and wrapping software systems in \sws{}
+    lines = latex_str.splitlines()
+    new_lines = []
+    for i, line in enumerate(lines):
+        # st.write(line)
+        if i == len(lines) - 3:  # Before the last row
+            new_lines.append(r'\midrule')
+        new_lines.append(line)
+
+    latex_str = '\n'.join(new_lines)
+    for sws in systems_order:
+        latex_str = latex_str.replace(sws, r'\sws{' + sws + '}')
 
     st.latex(latex_str)
 
+    st.divider()
     st.write("# PLOTS")
 
     for pos in range(len(rep_dfs)):
@@ -304,29 +353,98 @@ def plot_invariance_option_results(results_list):
         st.write("Number of informative influences")
         st.write(count_variant_influences.to_dict())
 
+
+        # Include options with zero informative influences
+        all_options = sws_kld_df["option"].unique()
+        count_variant_influences = count_variant_influences.reindex(all_options, fill_value=0)
+
+
         new_tups = [(sws, option, kld) for option, kld in count_variant_influences.items()]
         tups.extend(new_tups)
 
     df_kld_informs = pd.DataFrame(tups, columns=["Software System", "Option", "KLD"])
     st.dataframe(df_kld_informs)
+
     n_only_informative = np.sum(df_kld_informs["KLD"] == 1.0)
     st.write(f"Number of options with only informative influences: {n_only_informative}")
     st.dataframe(df_kld_informs[df_kld_informs["KLD"] == 1.0].groupby("Option").count())
 
-    plt.figure(figsize=(8.5, 3.5))
-    sns.swarmplot(data=df_kld_informs, x="KLD", hue="Software System", size=8)
-    plt.xlabel("Share of Informative Influences")
+    plt.figure(figsize=(7.5, 2.25))
+    sns.violinplot(
+        data=df_kld_informs,
+        x="KLD",
+        y="Software System",
+        hue="Software System",
+        inner="point",
+        bw_adjust=0.4,
+        linewidth=1.25,
+        fill=False,
+        # density_norm="count",
 
-    # Customize legend
-    plt.legend(title='Software System', bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+    )
+    plt.xlim((0,1))
+    plt.ylabel("")
+    sns.despine()
+    sns.set_style("white")
+    # plt.grid(True, linestyle='--', alpha=0.7)
+    plt.xlabel("Share of informative influences per option")
+    tmp_file="share-violins.pdf"
+    plt.savefig(tmp_file, bbox_inches='tight')
+    st.pyplot(plt.gcf())
+    with st.expander(label="Get Your PDF Now COMPLETELY FREE!!!1!11!!", expanded=False):
+        embed_pdf(tmp_file)
+
+
+    plt.close()
+
+    plt.figure(figsize=(10.5, 2.25))
+    sns.swarmplot(
+        data=df_kld_informs,
+        x="KLD",
+        y="Software System",
+        hue="Software System",
+        # dodge=True,
+        # size=6,      # Increase or decrease to see the effect
+        # jitter=True  # Add jitter to spread out the points horizontally
+    )
+    plt.xlabel("Share of Informative Influences")
+    sns.set(style="whitegrid")
+    # Customize legend with two columns and LaTeX formatting
+    handles, labels = plt.gca().get_legend_handles_labels()
+    new_labels = labels
+    plt.legend(handles, new_labels, title='Software System', bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., ncol=2)
+    # Customize legend with two columns
+    # plt.legend(title='Software System', bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., ncol=2)
 
     plt.tight_layout()
-    st.pyplot(plt.gcf())
     tmp_file = "sws-kldevs.pdf"
     plt.savefig(tmp_file, bbox_inches='tight')
 
+    st.pyplot(plt.gcf())
     with st.expander(label="Get Your PDF Now COMPLETELY FREE!!!1!11!!", expanded=False):
         embed_pdf(tmp_file)
+
+    # Histogram plot with bins of width 0.05
+    plt.figure(figsize=(5, 3))
+    bins = np.arange(0, df_kld_informs["KLD"].max() + 0.05, 0.05)
+    plt.hist(df_kld_informs["KLD"], bins=bins, edgecolor='black')
+
+    plt.xlabel('Share of Informative Influences')
+    plt.ylabel('Frequency')
+    sns.despine()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    st.pyplot(plt.gcf())
+
+    tmp_file = "sws-kldevs.pdf"
+
+    plt.close()
+
+
+
+
+
+    # SECOND PLOT
+
 
     invariant_ratios = [(sws, r["invariant-options.json"]["ratio_invar_options"]) for sws, r in results_list.items()]
     ratio_lbl = "Ratio of Invariant Options"
