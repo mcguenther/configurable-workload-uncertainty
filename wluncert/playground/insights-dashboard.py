@@ -18,6 +18,7 @@ import streamlit.components.v1 as components
 import base64
 from microRQdashboard import get_subfolders, read_and_combine_csv, embed_pdf, bayes_palette, comparison_palette
 
+
 def read_sws_insights(root_dir):
     interesting_files = [
         "representation-selection-log.csv",
@@ -58,6 +59,7 @@ def read_sws_insights(root_dir):
 
     return data
 
+
 def main():
     st.set_page_config(
         page_title="MCMC Multilevel Models Insights",
@@ -86,13 +88,13 @@ def main():
                 #          "240318-14-27-26-aggregation-WLFgXnWyqc",
                 #          "240319-11-56-40-aggregation-gn5W8tJhaY"],
                 default=[
-                        # "240601-22-15-26-2024-06-01_22-15-26-3hEyEdUK8d",
-                        "240603-23-57-17-2024-06-03_23-57-17-bQ232vvGXt",
-                         ],
+                    # "240601-22-15-26-2024-06-01_22-15-26-3hEyEdUK8d",
+                    "240603-23-57-17-2024-06-03_23-57-17-bQ232vvGXt",
+                ],
             )
 
             if (
-                selected_subfolders
+                    selected_subfolders
             ):  # st.button("Process CSV Files in Selected Subfolders"):
                 whole_folders = [
                     os.path.join(parent_folder, f) for f in selected_subfolders
@@ -109,11 +111,11 @@ def main():
         exit(21)
     else:
 
-        selected_systems = st.multiselect("Subselect", results_list, default=[f for f in results_list if "artif" not in f and "kanzi" not in f])
-        results_list = {k:v for k,v in results_list.items() if k in selected_systems}
+        selected_systems = st.multiselect("Subselect", results_list,
+                                          default=[f for f in results_list if "artif" not in f and "kanzi" not in f])
+        results_list = {k: v for k, v in results_list.items() if k in selected_systems}
 
         st.write("# hello world")
-
 
         # pdf_paths = [(sws, r["kde_paths"]) for sws, r in results_list.items()]
         # for (sws, pdf_paths), i in zip(pdf_paths, range(3)):
@@ -127,26 +129,24 @@ def main():
         #             pdf_path
         #         )
 
-
-
         analyses = {
             "representativeness_plot": representativeness_plot,
             "hyper level": hyper_level_analysis,
             "invariance": plot_invariance_option_results,
 
         }
-        tabs = st.tabs(tabs= analyses, )
+        tabs = st.tabs(tabs=analyses, )
 
         for tab, func in zip(tabs, analyses.values()):
             with tab:
                 func(results_list)
-
 
         # plot_invariance_option_results(results_list)
 
         st.divider()
         with st.expander("Full data", expanded=False):
             results_list
+
 
 def get_first_value_below_threshold(df, threshold, label):
     for index, value in enumerate(df[label]):
@@ -155,33 +155,47 @@ def get_first_value_below_threshold(df, threshold, label):
                 return index, value
     return len(df), 0
 
-def representativeness_plot(results_list):
 
+def representativeness_plot(results_list):
     rep_dfs = [(sws, r["representation-selection-log.csv"]) for sws, r in results_list.items()]
-    rep_screening_dfs = [(sws, r["representation-selection-log-screening-single-rep-sets.csv"]) for sws, r in results_list.items()]
-    res_df = pd.DataFrame(columns=['sws', 'Average Initial Information Loss', 'Optimal Initial Information Loss','Opt Init Loos per Influence', 'Rep. Set Size',
-     'Loss with rep set', 'Loss with rep set per Infl.' ,'no. of unfinished options', 'unf opt proz', 'no. of Unrep Envs', 'unrep envs proz', 'max rep set size'])
+    rep_screening_dfs = [(sws, r["representation-selection-log-screening-single-rep-sets.csv"]) for sws, r in
+                         results_list.items()]
+    res_df = pd.DataFrame(columns=['sws', 'Average Initial Information Loss', 'Optimal Initial Information Loss',
+                                   'Opt Init Loss per Influence', 'Loss reduce 2nd Workload in proz', 'Rep. Set Size',
+                                   'Loss with rep set', 'Loss with rep set per Infl.', 'no. of unfinished options',
+                                   'unf opt proz', 'no. of Unrep Envs', 'unrep envs proz', 'max rep set size'])
     # st.write(rep_dfs)
 
     loss_str = 'Information Loss'
     for pos in range(len(rep_dfs)):
-
         sws = rep_dfs[pos][0]
         rep_df = rep_dfs[pos][1]
-        rep_df['newStep']= rep_df['Step'] - 1
+        rep_df['newStep'] = rep_df['Step'] - 1
         rep_screening_df = rep_screening_dfs[pos][1]
         min_start = rep_screening_df['Information Loss'].min()
-        num_infl = (rep_df.loc[0]["Unfinished Options"]*rep_df.loc[0]["Unrepresented Envs"])
-
+        num_infl = (rep_df.loc[0]["Unfinished Options"] * rep_df.loc[0]["Unrepresented Envs"])
+        max_start = rep_screening_df['Information Loss'].max()
+        st.write(f"Max start: {max_start}")
+        reduce2nd = round(100 * (rep_df.loc[2]['Information Loss Reduction']) / rep_df.loc[1][loss_str])
 
         mean_start_loss = rep_screening_df[loss_str].mean()
-        stop_step, stop_value = get_first_value_below_threshold(rep_df, (0.1 * rep_screening_df[loss_str].min()), 'Information Loss Reduction')
-        res_df.loc[pos] = [sws, mean_start_loss, min_start, min_start/num_infl,
-                           (stop_step-1), rep_df.loc[stop_step-1][loss_str], rep_df.loc[stop_step-1][loss_str]/num_infl,
-                           rep_df.loc[stop_step-1]["Unfinished Options"], round(100 * rep_df.loc[stop_step-1]["Unfinished Options"] / rep_df.loc[0]["Unfinished Options"]),
-                           rep_df.loc[stop_step-1]["Unrepresented Envs"], round(100 * rep_df.loc[stop_step-1]["Unrepresented Envs"] / rep_df.loc[0]["Unrepresented Envs"]),
-                           (len(rep_df)-1)]
-
+        stop_step, stop_value = get_first_value_below_threshold(rep_df, (0.1 * rep_screening_df[loss_str].min()),
+                                                                'Information Loss Reduction')
+        res_df.loc[pos] = [sws,  # sws
+                           mean_start_loss,  # Average Initial Information Loss
+                           min_start,  # optimal initial information loss
+                           min_start / num_infl,  # opt. init loss per influence
+                           reduce2nd,  # Loss reduce 2nd Workload in proz
+                           (stop_step - 1),  # rep set size
+                           rep_df.loc[stop_step - 1][loss_str],  # loss with rep set size
+                           rep_df.loc[stop_step - 1][loss_str] / num_infl,  # loss with rep set size per infl
+                           rep_df.loc[stop_step - 1]["Unfinished Options"],  # no. of unfinished options
+                           round(100 * rep_df.loc[stop_step - 1]["Unfinished Options"] / rep_df.loc[0][
+                               "Unfinished Options"]),  # no unf opt proz
+                           rep_df.loc[stop_step - 1]["Unrepresented Envs"],  # no of unrep envs
+                           round(100 * rep_df.loc[stop_step - 1]["Unrepresented Envs"] / rep_df.loc[0][
+                               "Unrepresented Envs"]),  # no of unrep envs proz
+                           (len(rep_df) - 1)]  # max rep set size
 
     # Compute the mean for each column
     average_row = res_df.mean(numeric_only=True).to_frame().T
@@ -195,12 +209,11 @@ def representativeness_plot(results_list):
 
     st.write("## Latex")
     latex_str = res_df.to_latex(index=True, multirow=True, multicolumn=True,
-                                        multicolumn_format='c', column_format='r' + 'r' * res_df.shape[1],
-                                        escape=False,
-                                        float_format="{:0.1f}".format)
+                                multicolumn_format='c', column_format='r' + 'r' * res_df.shape[1],
+                                escape=False,
+                                float_format="{:0.1f}".format)
 
     st.latex(latex_str)
-
 
     st.write("# PLOTS")
 
@@ -212,22 +225,24 @@ def representativeness_plot(results_list):
         sws = rep_dfs[pos][0]
         st.write(f"# SWS: {sws}")
         rep_df = rep_dfs[pos][1]
-        rep_df['newStep']= rep_df['Step'] - 1 #fix position swarmplot
+        rep_df['newStep'] = rep_df['Step'] - 1  # fix position swarmplot
         rep_screening_df = rep_screening_dfs[pos][1]
         mean_start_loss = rep_screening_df[loss_str].mean()
-        stop_step, stop_value = get_first_value_below_threshold(rep_df, (0.1 * rep_screening_df[loss_str].min()), 'Information Loss Reduction')
+        stop_step, stop_value = get_first_value_below_threshold(rep_df, (0.1 * rep_screening_df[loss_str].min()),
+                                                                'Information Loss Reduction')
         # fig = plt.figure(figsize=(5,1.75))
-        fig = plt.figure(figsize=(6,2.05))
+        fig = plt.figure(figsize=(6, 2.05))
         st.dataframe(rep_df)
         line_color = bayes_palette[0]
         swarm_color = comparison_palette[0]
         sns.swarmplot(data=rep_screening_df, x="Step", y=loss_str, color=swarm_color)
 
         sns.lineplot(data=rep_df, x="newStep", y=loss_str, marker="o", color=line_color)
-        #sns.scatterplot(data=rep_screening_df, x="Step", y=loss_str, color=swarm_color)
-        #plt.axhline(y=mean_start_loss, color="orange", linestyle='--', label="Mean Starting Information Loss")
+        # sns.scatterplot(data=rep_screening_df, x="Step", y=loss_str, color=swarm_color)
+        # plt.axhline(y=mean_start_loss, color="orange", linestyle='--', label="Mean Starting Information Loss")
         set_size_color = "#444444"
-        plt.axvline(x=(stop_step-2), color=set_size_color, linestyle='--', label=f"Number Envs in Set") # -1 for last step, -1 for fix swarmplot
+        plt.axvline(x=(stop_step - 2), color=set_size_color, linestyle='--',
+                    label=f"Number Envs in Set")  # -1 for last step, -1 for fix swarmplot
         plt.xticks(ticks=rep_df['newStep'], labels=rep_df['Step'])
         # plt.title(f"{sws}")
         plt.xlabel("Step")
@@ -236,8 +251,8 @@ def representativeness_plot(results_list):
         plt.xlabel("Representation Set Size")
         plt.xlim(left=-0.85)
         sns.despine(left=True)
-        #plt.legend()
-        tmp_file= f"log_{sws}.pdf"
+        # plt.legend()
+        tmp_file = f"log_{sws}.pdf"
         plt.savefig(tmp_file, bbox_inches='tight')
         # plt.show()
         # st.pyplot(plt.gcf())
@@ -254,16 +269,12 @@ def representativeness_plot(results_list):
         #                    (len(rep_df)-1)]
 
 
-
-
-
-
 def hyper_level_analysis(results_list):
     df_hyper_iqr_outliers = [(sws, r["outliers-hyperiors-most-iqr.csv"]) for sws, r in results_list.items()]
 
     total_number = sum([len(df) for sws, df in df_hyper_iqr_outliers])
     st.metric("Total Hyper Poster Outliers", total_number)
-    st.metric("Average Hyper Poster Outliers Per System", round(total_number / len(df_hyper_iqr_outliers),2))
+    st.metric("Average Hyper Poster Outliers Per System", round(total_number / len(df_hyper_iqr_outliers), 2))
 
     # Create a new list of dataframes with the 'sws' column added
     df_hyper_iqr_outliers_with_sws = [(sws, df.assign(sws=sws)) for sws, df in df_hyper_iqr_outliers]
@@ -285,7 +296,6 @@ def plot_invariance_option_results(results_list):
     tups = []
     plt.close()
     for sws, sws_kld_df in kldivs_raw_data.items():
-
         st.write(f"## {sws} for KLDs")
 
         n_envs = sws_kld_df.groupby("option")["kldiv"].count()[0]
@@ -303,9 +313,6 @@ def plot_invariance_option_results(results_list):
     st.write(f"Number of options with only informative influences: {n_only_informative}")
     st.dataframe(df_kld_informs[df_kld_informs["KLD"] == 1.0].groupby("Option").count())
 
-
-
-
     plt.figure(figsize=(8.5, 3.5))
     sns.swarmplot(data=df_kld_informs, x="KLD", hue="Software System", size=8)
     plt.xlabel("Share of Informative Influences")
@@ -321,11 +328,6 @@ def plot_invariance_option_results(results_list):
     with st.expander(label="Get Your PDF Now COMPLETELY FREE!!!1!11!!", expanded=False):
         embed_pdf(tmp_file)
 
-
-
-
-
-
     invariant_ratios = [(sws, r["invariant-options.json"]["ratio_invar_options"]) for sws, r in results_list.items()]
     ratio_lbl = "Ratio of Invariant Options"
     df_opt_invar = pd.DataFrame(invariant_ratios, columns=["Software System", ratio_lbl])
@@ -337,8 +339,8 @@ def plot_invariance_option_results(results_list):
     # Create the violin plot with swarm scatters
 
     scale = 3
-    ratio = 1/5
-    plt.figure(figsize=(2*scale, 3*scale*ratio), dpi=300)
+    ratio = 1 / 5
+    plt.figure(figsize=(2 * scale, 3 * scale * ratio), dpi=300)
     violin_color = bayes_palette[0]
     sns.violinplot(x=ratio_lbl, data=df,
                    inner=None,
@@ -351,7 +353,7 @@ def plot_invariance_option_results(results_list):
     sns.swarmplot(x=ratio_lbl, data=df, color='k', alpha=1.0, edgecolor='w', linewidth=1.0)
     # Customize the plot
     plt.xlim(0.0, 1.0)
-    plt.xlabel("%s" % ratio_lbl)#, fontsize=14)
+    plt.xlabel("%s" % ratio_lbl)  # , fontsize=14)
     plt.ylabel("")
     # Add grid lines
     plt.grid(True, linestyle='--', linewidth=0.5)
@@ -368,9 +370,9 @@ def plot_invariance_option_results(results_list):
         )
 
 
-def draw_multitask_paper_plot(combined_df,     system_col="params.software-system",
-    model_col="params.model",
-    cat_col="params.pooling_cat",):
+def draw_multitask_paper_plot(combined_df, system_col="params.software-system",
+                              model_col="params.model",
+                              cat_col="params.pooling_cat", ):
     st.dataframe(combined_df)
     st.write("Filter models ...")
     wanted_models = {
@@ -384,15 +386,15 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
         # "dummy": "mean",
     }
     all_models = list(combined_df[model_col].unique())
-    #st.write(all_models)
+    # st.write(all_models)
     filtered_df = combined_df[combined_df[model_col].isin(wanted_models)]
     filtered_df["params.model"] = filtered_df["params.model"].map(wanted_models)
 
     col_mapper = {
-        "mape":"MAPE",
+        "mape": "MAPE",
         # "mape_ci":"$\\text{MAPE}_\\text{CI}$"
-        "mape_ci":"MAPEci",
-        "pmape_ci":"pMAPE",
+        "mape_ci": "MAPEci",
+        "pmape_ci": "pMAPE",
         # "test_set_log-likelihood":"ell",
 
     }
@@ -408,7 +410,7 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
     melted_df["Metric"] = melted_df["Metric"].str.replace("metrics.", "")
     melted_df = melted_df.loc[melted_df["Metric"].isin(col_mapper)]
     melted_df["Metric"] = melted_df["Metric"].replace(col_mapper)
-    #st.dataframe(melted_df)
+    # st.dataframe(melted_df)
 
     pooling_cat_lbl = "Pooling"
     relative_train_size_lbl = "Relative Train Size"
@@ -429,12 +431,11 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
     melted_df[model_lbl].loc[(melted_df[model_lbl] == "Bayesian") & (melted_df[pooling_cat_lbl] == "partial")] = bpp
     melted_df[model_lbl].loc[(melted_df[model_lbl] == "Bayesian") & (melted_df[pooling_cat_lbl] == "complete")] = bcp
 
-
     # Wrapping "Subject System" column values in {}
 
     melted_df = melted_df.loc[~melted_df[subject_system_lbl].isin(["artificial", "kanzi"])]
     plot_df = copy.deepcopy(melted_df)
-    melted_df=melted_df.drop(columns=["Pooling"])
+    melted_df = melted_df.drop(columns=["Pooling"])
     melted_df[subject_system_lbl] = melted_df[subject_system_lbl].apply(lambda x: f'\\sws{{{x}}}')
     st.dataframe(melted_df)
 
@@ -442,7 +443,7 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
 
     melted_df["Value"] = melted_df["Value"].astype(float)
     melted_df["Value"] = melted_df["Value"].astype(float)
-    replacements =  {
+    replacements = {
         # "0.125000":"\\multicolumn{1}{c}{$\\sfrac{1}{8}$}",
         # "0.250000":"\\multicolumn{1}{c}{$\\sfrac{1}{4}$}",
         # "0.500000" :"\\multicolumn{1}{c}{$\\sfrac{1}{2}$}",
@@ -450,28 +451,28 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
         # "1.000000":"\\multicolumn{1}{c}{$1$}",
         # "2.000000":"\\multicolumn{1}{c}{$2$}",
         # "3.000000":"\\multicolumn{1}{c}{$3$}",
-        "0.125000":"$\\sfrac{1}{8} \\vert \\mathcal{O} \\vert$",
-        "0.250000":"$\\sfrac{1}{4} \\vert \\mathcal{O} \\vert$",
-        "0.500000":"$\\sfrac{1}{2} \\vert \\mathcal{O} \\vert$",
-        "0.750000":"$\\sfrac{3}{4} \\vert \\mathcal{O} \\vert$",
-        "1.000000":"$1 \\vert \\mathcal{O} \\vert$",
-        "2.000000":"$2 \\vert \\mathcal{O} \\vert$",
-        "3.000000":"$3 \\vert \\mathcal{O} \\vert$",
-        r"Subject System":"",
-        r"Relative Train Size":"$\\vert \\mathcal{D}^\mathit{train} \\vert$",
-            r"\\\\ \& \& \& \& \& \& \& \& \& \& \& \& ":"",
-            r" &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\":"",
+        "0.125000": "$\\sfrac{1}{8} \\vert \\mathcal{O} \\vert$",
+        "0.250000": "$\\sfrac{1}{4} \\vert \\mathcal{O} \\vert$",
+        "0.500000": "$\\sfrac{1}{2} \\vert \\mathcal{O} \\vert$",
+        "0.750000": "$\\sfrac{3}{4} \\vert \\mathcal{O} \\vert$",
+        "1.000000": "$1 \\vert \\mathcal{O} \\vert$",
+        "2.000000": "$2 \\vert \\mathcal{O} \\vert$",
+        "3.000000": "$3 \\vert \\mathcal{O} \\vert$",
+        r"Subject System": "",
+        r"Relative Train Size": "$\\vert \\mathcal{D}^\mathit{train} \\vert$",
+        r"\\\\ \& \& \& \& \& \& \& \& \& \& \& \& ": "",
+        r" &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\": "",
     }
     mape_df = melted_df[['Subject System', 'Relative Train Size', 'Model', "Metric", "Value"]]
     st.write("## Latex Tables.")
     with st.expander("all MAPES!", expanded=False):
         # grouped_mape = mape_df.groupby(['Subject System', 'Relative Train Size', 'Model', pooling_cat_lbl, "Metric",]).mean().reset_index()
         # st.dataframe(grouped_mape)
-        all_mapes_ape  = mape_df.loc[mape_df[relative_train_size_lbl].isin([0.25,0.5,0.75,1])]
+        all_mapes_ape = mape_df.loc[mape_df[relative_train_size_lbl].isin([0.25, 0.5, 0.75, 1])]
         initial_pivot = all_mapes_ape.pivot_table(index=['Subject System'],
-                                         columns=['Model', 'Metric', 'Relative Train Size'],
-                                         values='Value',
-                                         aggfunc='mean')
+                                                  columns=['Model', 'Metric', 'Relative Train Size'],
+                                                  values='Value',
+                                                  aggfunc='mean')
         st.dataframe(initial_pivot)
         rounded_scores = initial_pivot.applymap(lambda x: float(round(x, 1)) if isinstance(x, (int, float)) else x)
         st.dataframe(rounded_scores)
@@ -486,12 +487,11 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
         st.latex(latex_str)
         st.write(os.getcwd())
 
-
     with st.expander("MAPE ONLY", expanded=False):
         # grouped_mape = mape_df.groupby(['Subject System', 'Relative Train Size', 'Model', pooling_cat_lbl, "Metric",]).mean().reset_index()
         # st.dataframe(grouped_mape)
 
-        mapes_only_df = melted_df.loc[melted_df[relative_train_size_lbl].isin([0.125,0.25,0.5,0.75,1,2,3])]
+        mapes_only_df = melted_df.loc[melted_df[relative_train_size_lbl].isin([0.125, 0.25, 0.5, 0.75, 1, 2, 3])]
         mape_only_df = mapes_only_df.loc[mapes_only_df["Metric"].isin([col_mapper["mape"]])]
         mape_only_df.drop(columns=["Metric"])
         # initial_pivot = mape_only_df.pivot_table(index=['Subject System'],
@@ -499,9 +499,9 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
         #                                  values='Value',
         #                                  aggfunc='mean')
         initial_pivot = mape_only_df.pivot_table(index=['Relative Train Size'],
-                                         columns=['Model', 'Metric',],
-                                         values='Value',
-                                         aggfunc='mean')
+                                                 columns=['Model', 'Metric', ],
+                                                 values='Value',
+                                                 aggfunc='mean')
         st.dataframe(initial_pivot)
         rounded_scores = initial_pivot.applymap(lambda x: float(round(x, 1)) if isinstance(x, (int, float)) else x)
         st.dataframe(rounded_scores)
@@ -520,14 +520,14 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
         # st.dataframe(mapeci_only_df)
         mapeci_only_df = mapeci_only_df.drop(columns=["Metric"])
 
-        mapeci_only_df = mapeci_only_df.loc[mapeci_only_df[relative_train_size_lbl].isin([0.125,0.25,0.5,0.75,1,2,3])]
+        mapeci_only_df = mapeci_only_df.loc[
+            mapeci_only_df[relative_train_size_lbl].isin([0.125, 0.25, 0.5, 0.75, 1, 2, 3])]
         pivot_df = mapeci_only_df.pivot_table(index=['Subject System'],
-                                            columns=['Relative Train Size', 'Model'],
-                                            values='Value',
-                                            aggfunc='mean')
+                                              columns=['Relative Train Size', 'Model'],
+                                              values='Value',
+                                              aggfunc='mean')
 
-
-        #Calculate the mean for each column, skipping non-numeric data automatically
+        # Calculate the mean for each column, skipping non-numeric data automatically
         column_means = pivot_df.mean()
 
         # 2. Append the mean row to the DataFrame.
@@ -541,14 +541,15 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
             # Iterate through each 'Subject System' and the corresponding model with the lowest error
             for system, min_model in min_error_models.items():
                 # Prepend "X" to the value of the cell with the minimum error
-                rounded_scores.loc[system, (rel_train_size, min_model)] = "\\cellcolor{tabSignal}" + str(rounded_scores.loc[system, (rel_train_size, min_model)])
+                rounded_scores.loc[system, (rel_train_size, min_model)] = "\\cellcolor{tabSignal}" + str(
+                    rounded_scores.loc[system, (rel_train_size, min_model)])
                 # pivot_df.loc[system, (rel_train_size, min_model)] = "X" + str(pivot_df.loc[system, (rel_train_size, min_model)])
         st.dataframe(rounded_scores)
         rounded_scores.to_csv("./results-rq1.csv")
         # column_format = 'l' + ('|' + 'r' * subcols_per_model) * num_models
 
         column_format = 'r'
-        num_columns=rounded_scores.shape[1]
+        num_columns = rounded_scores.shape[1]
         # Loop through each column, starting from the first data column (ignoring the index column)
         for i in range(1, num_columns + 1):
             # For every third colu mn starting from the second, use '||' instead of '|'
@@ -558,7 +559,7 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
                 column_format += '|r'
         latex_str = rounded_scores.to_latex(index=True, multirow=True, multicolumn=True,
                                             multicolumn_format='c',
-                                            column_format=column_format,#'r' + '|r' * rounded_scores.shape[1],
+                                            column_format=column_format,  # 'r' + '|r' * rounded_scores.shape[1],
                                             escape=False,
                                             float_format="{:0.1f}".format)
         for pattern, replacement in replacements.items():
@@ -566,8 +567,6 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
         # latex_str = latex_str.replace("\\\\", "\\\\"+os.linesep)
         # st.latex(latex_str)
         st.text_area("output", latex_str)
-
-
 
     # wanted_models = {
     #     "mcmc": "Bayesian",
@@ -583,7 +582,7 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
     with st.spinner("Waiting for plot to be rendered"):
         model_order = ["Lasso", "Bayesian", "Mean"]
         # bayes_palette = sns.color_palette("YlOrBr", 3)
-        bayes_palette = ["#47AEED", "#398CBF",  "#2F729C"] # ["blue", "green", "red"] # sns.color_palette("flare", 3)
+        bayes_palette = ["#47AEED", "#398CBF", "#2F729C"]  # ["blue", "green", "red"] # sns.color_palette("flare", 3)
         model_colors = {
             # "Lasso": "blue",
             # "Bayesian": "green",
@@ -594,8 +593,6 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
             wanted_models["model_lassocv_reg_no_pool"]: "#BF393A",
             wanted_models["model_lassocv_reg_cpool"]: "#BF393A",
             # wanted_models["dummy"]: "black",
-
-
 
         }
 
@@ -619,7 +616,7 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
             aspect=1.2,
             height=2.9,
             col="Subject System",
-            col_wrap= 5,
+            col_wrap=5,
             legend=True,
         )
     st.write("## Plot")
@@ -634,7 +631,7 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
         y_max = min(upper_pMAPE, y_max)
         ax.set_ylim(0, y_max)
         # ax.set_xticks([0.5,1,3])
-        ax.set_xticks([0,1,2,3])
+        ax.set_xticks([0, 1, 2, 3])
         title = ax.get_title()
         new_title = title.replace("Subject System = ", "")
         ax.set_title(new_title)
@@ -645,10 +642,9 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
     #     fig.canvas.draw()
     #     time.sleep(0.1)
 
-
     handles, labels = plot.axes[0].get_legend_handles_labels()
-    padded_handles = [*handles[:4], None, None,  *handles[4:]]
-    padded_labels =[*labels[:4], None, None, *labels[4:]]
+    padded_handles = [*handles[:4], None, None, *handles[4:]]
+    padded_labels = [*labels[:4], None, None, *labels[4:]]
     fig.legend(
         padded_handles,
         padded_labels,
@@ -658,7 +654,6 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
         bbox_to_anchor=(0.5, -0.0015)  # Centers the legend below the plot. Adjust Y-offset as needed.
     )
     plot._legend.remove()
-
 
     tmp_file = "streamlit-last-results-multitask.pdf"
     plt.savefig(tmp_file, bbox_inches='tight')
@@ -671,15 +666,13 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
 
 def draw_multitask_dashboard(combined_df):
     st.write("## Plot configuration")
-    
+
     plot_type = st.selectbox("Do you want to get the paper plots more extensive plots?", ["Paper", "Custom"])
-    
+
     if plot_type == "Paper":
         draw_multitask_paper_plot(combined_df)
     else:
-            
-        
-        
+
         filtered_df, score_columns, systems, y_lim_max_mape = filter_result_df(combined_df)
         sns.set_context("talk")
         share_y = False
@@ -701,7 +694,7 @@ def draw_multitask_dashboard(combined_df):
             }
             st.info("Wrapping columns because only one score was selected!")
             only_one_metric = True
-    
+
         else:
             col_dict = {
                 "col": "Metric",
@@ -722,15 +715,15 @@ def draw_multitask_dashboard(combined_df):
 
 
 def plot_multitask(
-    col_dict,
-    filtered_df,
-    only_one_metric,
-    only_one_system,
-    score_columns,
-    share_x,
-    share_y,
-    systems,
-    y_lim_max_mape,
+        col_dict,
+        filtered_df,
+        only_one_metric,
+        only_one_system,
+        score_columns,
+        share_x,
+        share_y,
+        systems,
+        y_lim_max_mape,
 ):
     # Start with known values
     known_values = ["mcmc", "rf", "dummy"]
@@ -833,10 +826,10 @@ def plot_multitask(
 
 
 def filter_result_df(
-    combined_df,
-    system_col="params.software-system",
-    model_col="params.model",
-    cat_col="params.pooling_cat",
+        combined_df,
+        system_col="params.software-system",
+        model_col="params.model",
+        cat_col="params.pooling_cat",
 ):
     col1, col2, col3, col4 = st.columns(4)
     metrics_raw = get_metrics_in_df(combined_df)
