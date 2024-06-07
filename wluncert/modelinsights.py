@@ -358,14 +358,18 @@ class NumpyroModelInsight:
             for i, (base_hyper_samples, df, var_name) in enumerate(
                     zip(hyper_samples_list, df_list, var_names)
             ):
-                scale=1.5
-                aspect = 1.0
-                # Create a figure with the appropriate number of subplots
-                fig, axes = plt.subplots(2, 1, figsize=(scale*aspect, scale * 2), sharex=True, sharey=False)
-                # plt.suptitle(var_name)
-                # Flatten the axes array for easy iteration
-                axes = axes.flatten()
+
                 # Melt the DataFrame for the current pair
+                df_long = df.melt(var_name="Workload", value_name="Standard influence")
+                # Combine the base hyper samples and the specific influence data
+                all_samples = np.concatenate([base_hyper_samples, df_long["Standard influence"].values])
+                # Calculate the 99% HDI
+                hdi = az.hdi(all_samples, hdi_prob=0.998)
+                scale=1.2
+                aspect = 1.2
+                # Create a figure with the appropriate number of subplots
+                fig, axes = plt.subplots(2, 1, figsize=(scale*aspect, scale * 2 * 0.9), sharex=True, sharey=False)
+                axes = axes.flatten()
                 size_kw = {
                     "fill":True,
                 }
@@ -373,15 +377,10 @@ class NumpyroModelInsight:
                 # The top plot - single distribution without hue
                 top_index = 0
                 lower_index = 1
-                # Check if we've filled all the subplots
-                # if lower_index >= total_subplots:
-                #     break
                 ax_top = axes[top_index]
                 sns.kdeplot(base_hyper_samples, ax=ax_top, color="gray",
-                            cut=-4,
                             **size_kw)
                 # ax_top.set_title(f"Hyper Prior")
-                ax_top.set_title(f"General")
                 ax_top.set_xlabel("")  # Hide x-axis label for the top plot
                 ax_top.set_yticks([])
                 # The bottom plot - displot with different hues
@@ -391,30 +390,115 @@ class NumpyroModelInsight:
                     data=df_long, x="Standard influence", hue="Workload", ax=ax_bottom,legend=do_legend,
                     palette="colorblind",
                     #multiple="fill",
-                    cut=-4,
                     **size_kw
                 )
-                # sns.move_legend(
-                #     sns_ax,
-                #     "center right",
-                #     bbox_to_anchor=(-0.005, 0.5),
-                #     # ncol=3,
-                #     # title=None,
-                #     frameon=True,
-                #     fancybox=True,
-                # )
-                ax_bottom.set_title(f"Specific")
-                # ax_bottom.set_title(f"By Workload")
+                ax_top.set_ylabel(f"General")
+                ax_bottom.set_ylabel(f"Specific")
+
                 ax_bottom.set_xlabel("Influence")
                 ax_bottom.set_yticks([])
-                ax_bottom.set_ylabel("")
-                ax_top.set_ylabel("")
+
+                for ax in (ax_top, ax_bottom):
+                    # Ensure 0 is included in the x-axis limits
+                    # ax.set_xlim(hdi[0], hdi[1])
+                    x_min, x_max = hdi
+                    x_min = min(x_min, 0)
+                    x_max = max(x_max, 0)
+                    ax.set_xlim(x_min, x_max)
+
+                # Get x-tick positions and labels from the bottom plot
+                x_ticks = ax_bottom.get_xticks()
+                x_tick_labels = ax_bottom.get_xticklabels()
+
+                # Set the same x-tick positions and labels for the top plot
+                ax_top.set_xticks(x_ticks)
+                ax_top.set_xticklabels(x_tick_labels)
+
                 sns.despine(left=True)
                 # # Hide x-axis label for all but the bottom row plots
                 # if (2 * i + 1) // columns < (rows - 1) * 2:
                 #     ax_bottom.set_xlabel("")
                 plt.tight_layout()
+                log_figure_pdf(f"hyperiors-{var_name}-y-labels", close=False)
+                ax_top.set_ylabel("")
+                ax_bottom.set_ylabel("")
+                plt.tight_layout()
                 log_figure_pdf(f"hyperiors-{var_name}")
+
+
+
+
+
+                scale = 2.0
+                aspect = 1.0 / 1.05
+
+                # Melt the DataFrame for the current pair
+                df_long = df.melt(var_name="Workload", value_name="Standard influence")
+                # Combine the base hyper samples and the specific influence data
+                all_samples = np.concatenate([base_hyper_samples, df_long["Standard influence"].values])
+                # Calculate the 99% HDI
+                hdi = az.hdi(all_samples, hdi_prob=0.998)
+
+                # Create a figure with a single subplot
+                fig, ax = plt.subplots(figsize=(scale*aspect, scale))
+
+                # Plot the KDE plot for the DataFrame with different hues
+                do_legend = False
+                lw = 1.05
+                sns_ax = sns.kdeplot(
+                    data=df_long, x="Standard influence", hue="Workload", ax=ax, legend=do_legend,
+                    palette="colorblind",
+                    linewidth=lw,
+                    common_norm=False,
+                    fill=True,
+                )
+
+                # Plot the base hyper samples with a white contour
+                sns.kdeplot(base_hyper_samples, ax=ax, color="white",
+                            linewidth=lw,  # Make this line thicker
+                            fill=False)
+
+                # Plot the base hyper samples as a black dashed line on top of the white contour
+                sns.kdeplot(base_hyper_samples, ax=ax, color="black",
+                            linewidth=lw,
+                            linestyle='--',
+                            fill=False)
+
+                # Set the x-axis limits to cover the 99% HDI
+                x_min, x_max = hdi
+                x_min = min(x_min, 0)
+                x_max = max(x_max, 0)
+                ax.set_xlim(x_min, x_max)
+
+                # Get x-tick positions and labels
+                x_ticks = ax.get_xticks()
+                x_tick_labels = ax.get_xticklabels()
+
+                # Set the x-tick positions and labels
+                ax.set_xticks(x_ticks)
+                ax.set_xticklabels(x_tick_labels)
+
+                ax.set_xlabel("Influences")
+                ax.set_yticks([])
+                ax.set_ylabel("")
+
+                sns.despine(left=True)
+                plt.tight_layout()
+                log_figure_pdf(f"hyperiors-combined-{var_name}-y-labels")
+
+                ax_top.set_ylabel("")
+                ax_bottom.set_ylabel("")
+                plt.tight_layout()
+                log_figure_pdf(f"hyperiors-{var_name}")
+
+
+
+
+
+
+
+
+
 
 
         # plt.show()
@@ -844,10 +928,11 @@ def main():
     # plot_metadata(meta_df, output_base_path)
     # plot_errors(err_type, output_base_path, score_df)
 
-def log_figure_pdf(plot_name):
+def log_figure_pdf(plot_name, close=True):
     file_name = "%s.pdf" % plot_name
     plt.savefig(file_name, bbox_inches="tight")
-    plt.close()
+    if close:
+        plt.close()
     mlflow.log_artifact(file_name)
 
 if __name__ == "__main__":

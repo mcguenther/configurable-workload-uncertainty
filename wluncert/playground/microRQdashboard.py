@@ -248,9 +248,14 @@ def main():
                 #          "240318-14-27-26-aggregation-WLFgXnWyqc",
                 #          "240319-11-56-40-aggregation-gn5W8tJhaY"],
                 default=[
-                        "240321-19-59-19-aggregation-bTLYxz3uFg", # old bayesian multitask
-                         # "240319-22-38-13-aggregation-dwnJojszkX", # new lasso grid
-                         "240322-13-08-04-aggregation-NKUie5gttU", # 0.9 CI
+                        # "240321-19-59-19-aggregation-bTLYxz3uFg", # old bayesian multitask
+                        #  # "240319-22-38-13-aggregation-dwnJojszkX", # new lasso grid
+                        #  "240322-13-08-04-aggregation-NKUie5gttU", # 0.9 CI
+
+                        "240530-04-25-16-aggregation-fufenzJcNa",
+                        # "240530-16-44-27-aggregation-kmTX5kus7v",
+                        "240530-18-50-45-aggregation-5k3mM6CkV4",
+
                          ],
             )
 
@@ -595,7 +600,7 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
         ax.set_xticks([0,1,2,3])
         title = ax.get_title()
         new_title = title.replace("Subject System = ", "")
-        ax.set_title(new_title)
+        ax.set_title(new_title, fontsize=16)
         ax.set_ylabel("")
         # if ax.legend_:
         #     ax.legend_.remove()
@@ -605,18 +610,60 @@ def draw_multitask_paper_plot(combined_df,     system_col="params.software-syste
 
 
     handles, labels = plot.axes[0].get_legend_handles_labels()
-    padded_handles = [*handles[:4], None, None,  *handles[4:]]
-    padded_labels =[*labels[:4], None, None, *labels[4:]]
+    st.write(labels)
+    model_padded_handles = [*handles[6:]]
+    model_padded_labels =[*labels[6:]]
+    pooling_padded_handles = [*handles[:6]]
+    pooling_padded_labels = [*labels[:6]]
+
+
+    # padded_handles = [*handles[6:], None, None, None, *handles[:6]]
+    # padded_labels =[*labels[6:], None ," ", None, *labels[:6]]
+    pooling_padded_labels[0] = "Model     "
+
+    model_legend = fig.legend(
+        model_padded_handles,
+        model_padded_labels,
+        loc='upper left',  # Adjusts legend position relative to the anchor.
+        ncol=1,  # Assumes you want all items in one row; adjust as needed.
+        frameon=True,
+        # bbox_to_anchor=(0.5, -0.0015)  # Centers the legend below the plot. Adjust Y-offset as needed.
+        bbox_to_anchor=(0.93, 0.5),
+        fontsize=16
+    )
+
+    fig.add_artist(model_legend)
+
+    pooling_legend = fig.legend(
+        pooling_padded_handles,
+        pooling_padded_labels,
+        loc='lower left',  # Adjusts legend position relative to the anchor.
+        ncol=1,  # Assumes you want all items in one row; adjust as needed.
+        frameon=True,
+        # bbox_to_anchor=(0.5, -0.0015)  # Centers the legend below the plot. Adjust Y-offset as needed.
+        bbox_to_anchor=(0.93, 0.5),
+        fontsize=16
+
+    )
+
+    '''
     fig.legend(
         padded_handles,
         padded_labels,
         loc='upper center',  # Adjusts legend position relative to the anchor.
-        ncol=len(padded_handles),  # Assumes you want all items in one row; adjust as needed.
+        ncol=1,  # Assumes you want all items in one row; adjust as needed.
         frameon=True,
-        bbox_to_anchor=(0.5, -0.0015)  # Centers the legend below the plot. Adjust Y-offset as needed.
+        # bbox_to_anchor=(0.5, -0.0015)  # Centers the legend below the plot. Adjust Y-offset as needed.
+        bbox_to_anchor=(1, 0.5)  # Centers the legend below the plot. Adjust Y-offset as needed.
     )
+    '''
     plot._legend.remove()
 
+    # Change the size of the x and y axis labels
+    for ax in plot.axes.flat:
+        ax.set_xlabel(ax.get_xlabel(), fontsize=16)
+        ax.set_ylabel(ax.get_ylabel(), fontsize=16)
+        ax.tick_params(axis='both', which='major', labelsize=12)
 
     tmp_file = "streamlit-last-results-multitask.pdf"
     plt.savefig(tmp_file, bbox_inches='tight')

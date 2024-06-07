@@ -230,12 +230,38 @@ def representativeness_plot(results_list):
     st.write("## Latex")
     column_width = "1.0cm"
 
+    res_df_small = res_df.drop([opt_init_loss_per_influence, loss_with_re_set_per_infl, relative_num_unfinished_options, rel_num_unrep_envs, num_unrepr_envs], axis=1)
+
+    res_df_small.columns = pd.MultiIndex.from_tuples([
+        ('Software System', ''),
+        ('Information Loss', 'Init. Avg.'),
+        ('Informaiton Loss', 'Init. Opt.'),
+        ('Information Loss', 'After 2nd (\%)'),
+        ('Representative set', 'with threshold'),
+        ('Infomation Loss', 'Rep. set'),
+        ('Number of', 'unfinished options'),
+        ('Representative set', 'without threshold'),
+    ])
+
+    new_order = [
+        ('Software System', ''),
+        ('Information Loss', 'Init. Avg.'),
+        ('Informaiton Loss', 'Init. Opt.'),
+        ('Information Loss', 'After 2nd (\%)'),
+        ('Infomation Loss', 'Rep. set'),
+        ('Representative set', 'with threshold'),
+        ('Representative set', 'without threshold'),
+        ('Number of', 'unfinished options'),
+    ]
+    res_df_small = res_df_small[new_order]
+    st.dataframe(res_df_small)
+
     # Create the LaTeX string with right-aligned columns
-    latex_str = res_df.to_latex(
+    latex_str = res_df_small.to_latex(
         index=False,
         multirow=True,
         multicolumn=True,
-        multicolumn_format='c',
+        multicolumn_format='c|',
         escape=False,
         float_format="{:0.1f}".format,
         column_format=''.join([f'>{{\\raggedleft\\arraybackslash}}p{{{column_width}}}' for _ in range(res_df.shape[1])])
@@ -245,6 +271,8 @@ def representativeness_plot(results_list):
     header_columns = res_df.columns
     header_str = ' & '.join([f'\\multicolumn{{1}}{{>{{\\centering\\arraybackslash}}p{{{column_width}}}}}{{{col}}}' for col in header_columns])
     latex_str = latex_str.replace(' & '.join(header_columns) + ' \\\\', header_str + ' \\\\')
+
+    latex_str = latex_str.replace("Information Loss & Informaiton Loss & Information Loss & Infomation Loss", "\\multicolumn{4}{c|}{Information loss}")
 
     # Output the modified LaTeX string
     # st.write(latex_str)
@@ -295,9 +323,9 @@ def representativeness_plot(results_list):
         plt.xticks(ticks=rep_df['newStep'], labels=rep_df['Step'])
         # plt.title(f"{sws}")
         plt.xlabel("Step")
-        plt.ylabel("Information Loss")
+        plt.ylabel("Information loss")
         plt.ylim(bottom=0)
-        plt.xlabel("Representation Set Size")
+        plt.xlabel("Representative set size")
         plt.xlim(left=-0.85)
         sns.despine(left=True)
         # plt.legend()
@@ -365,11 +393,21 @@ def plot_invariance_option_results(results_list):
     df_kld_informs = pd.DataFrame(tups, columns=["Software System", "Option", "KLD"])
     st.dataframe(df_kld_informs)
 
-    n_only_informative = np.sum(df_kld_informs["KLD"] == 1.0)
-    st.write(f"Number of options with only informative influences: {n_only_informative}")
-    st.dataframe(df_kld_informs[df_kld_informs["KLD"] == 1.0].groupby("Option").count())
+    col1, col2 = st.columns(2)
+    with col1:
+        n_only_informative = np.sum(df_kld_informs["KLD"] == 1.0)
+        st.metric("Number of options with only informative influences", n_only_informative)
+        st.metric("Relative Number of options with only informative influences", n_only_informative/len(df_kld_informs)*100)
+    with col2:
 
-    plt.figure(figsize=(7.5, 2.25))
+        n_no_informative = np.sum(df_kld_informs["KLD"] <= 0.0)
+        st.metric("Number of options with no informative influences", n_no_informative)
+        st.metric("Relative Number of options with no informative influences", n_no_informative/len(df_kld_informs)*100)
+
+
+    st.dataframe(df_kld_informs[df_kld_informs["KLD"] == 1.0].groupby("Option").count())
+    scale = 0.9
+    plt.figure(figsize=(3.5*scale, 2.25*scale))
     sns.violinplot(
         data=df_kld_informs,
         x="KLD",
@@ -387,7 +425,7 @@ def plot_invariance_option_results(results_list):
     sns.despine()
     sns.set_style("white")
     # plt.grid(True, linestyle='--', alpha=0.7)
-    plt.xlabel("Share of informative influences per option")
+    plt.xlabel("Informative influences per option")
     tmp_file="share-violins.pdf"
     plt.savefig(tmp_file, bbox_inches='tight')
     st.pyplot(plt.gcf())
@@ -446,8 +484,11 @@ def plot_invariance_option_results(results_list):
     # SECOND PLOT
 
 
+
+
+
     invariant_ratios = [(sws, r["invariant-options.json"]["ratio_invar_options"]) for sws, r in results_list.items()]
-    ratio_lbl = "Ratio of Invariant Options"
+    ratio_lbl = "Ratio of invariant options"
     df_opt_invar = pd.DataFrame(invariant_ratios, columns=["Software System", ratio_lbl])
     df_opt_invar_sorted = df_opt_invar.sort_values(by=ratio_lbl)
     st.dataframe(df_opt_invar_sorted)
@@ -458,7 +499,9 @@ def plot_invariance_option_results(results_list):
 
     scale = 3
     ratio = 1 / 5
-    plt.figure(figsize=(2 * scale, 3 * scale * ratio), dpi=300)
+
+    # plt.figure(figsize=(scale, 3 * scale * ratio), dpi=300)
+    plt.figure(figsize=(3.5, 2.25), dpi=300)
     violin_color = bayes_palette[0]
     sns.violinplot(x=ratio_lbl, data=df,
                    inner=None,
@@ -486,6 +529,60 @@ def plot_invariance_option_results(results_list):
         embed_pdf(
             tmp_file
         )
+
+    # Combined Plot
+
+    # Set the style for the plot
+    sns.set(style="whitegrid")
+    # Create the violin plot with swarm scatters
+
+    scale = 3
+    ratio = 1 / 5
+    fig, axs = plt.subplots(1, 2, figsize=((2 * scale + 7.5) / 2, 3 * scale * ratio), dpi=300)
+
+    # First subplot
+    violin_color = bayes_palette[0]
+    sns.violinplot(ax=axs[0], x=ratio_lbl, data=df,
+                   inner=None,
+                   bw_adjust=0.35,
+                   scale='width',
+                   linewidth=1.25,
+                   color=violin_color)
+    sns.swarmplot(ax=axs[0], x=ratio_lbl, data=df, color='k', alpha=1.0, edgecolor='w', linewidth=1.0)
+    axs[0].set_xlim(0.0, 1.0)
+    axs[0].set_xlabel("%s" % ratio_lbl)
+    axs[0].set_ylabel("")
+    axs[0].grid(True, linestyle='--', linewidth=0.5)
+    sns.despine(ax=axs[0])
+
+    # Second subplot
+    sns.violinplot(ax=axs[1],
+                   data=df_kld_informs,
+                   x="KLD",
+                   y="Software System",
+                   hue="Software System",
+                   inner="point",
+                   bw_adjust=0.4,
+                   linewidth=1.25,
+                   fill=False)
+    axs[1].set_xlim((0, 1))
+    axs[1].set_ylabel("")
+    sns.despine(ax=axs[1])
+    sns.set_style("white")
+    axs[1].set_xlabel("Share of informative influences per option")
+
+    # Adjust layout
+    plt.tight_layout()
+
+    # Save the combined figure
+    tmp_file = "combined_plots.pdf"
+    plt.savefig(tmp_file, bbox_inches='tight')
+
+    # Show the plot
+    st.pyplot(plt.gcf())
+    with st.expander(label="Get Your PDF Now COMPLETELY FREE!!!1!11!!", expanded=False):
+        embed_pdf(tmp_file)
+
 
 
 def draw_multitask_paper_plot(combined_df, system_col="params.software-system",
