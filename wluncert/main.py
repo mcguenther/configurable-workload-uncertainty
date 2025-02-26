@@ -294,9 +294,9 @@ def main():
         # # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
 
         # FINALS
-        # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
-        # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
-        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
+        chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
+        chosen_model_lbls.extend(["cpooling-mcmc-1model"])
+        chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
 
         # # # LAST UNCOMMENTED!!!!
         # chosen_model_lbls.extend(["model_lasso_reg_cpool"])
