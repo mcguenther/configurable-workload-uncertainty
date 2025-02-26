@@ -289,12 +289,13 @@ class WorkloadTrainingDataSet:
 
 
 class DataLoaderStandard:
-    def __init__(self, base_path):
+    def __init__(self, base_path, sep=None):
         super().__init__()
         self.base_path = base_path
+        self.sep = sep
 
     def get_standard_CSV(self):
-        sys_df = pd.read_csv(self.base_path)
+        sys_df = pd.read_csv(self.base_path, sep=self.sep)
         df_no_multicollinearity = remove_multicollinearity(sys_df)
         cleared_sys_df = copy.deepcopy(df_no_multicollinearity)
         return cleared_sys_df
@@ -440,6 +441,88 @@ class DataAdapterXZ(DashboardDatAdapter):
             self.environment_lables,
         ) = cleared_sys_df_wanted_wls[self.environment_col_name].factorize()
         return cleared_sys_df_wanted_wls
+
+
+class DataAdapterNFPApache(DataAdapter):
+    def __init__(self, data_loader: DataLoaderStandard):
+        self.environment_col_name = "nfp-id"
+        self.nfp_columns = ["performance", "cpu", "energy", "fixed-energy"]
+        self.nfp_val_col = "y"
+        super().__init__(data_loader, self.environment_col_name)
+
+    def get_environment_col_name(self):
+        return self.environment_col_name
+
+    def get_environment_lables(self):
+        return list(range(len(self.nfp_columns)))
+
+    def get_nfps(self):
+        return [self.nfp_val_col]
+
+    def get_transformed_df(self, cleared_sys_df):
+        # Use only latest version
+        cleared_sys_df = cleared_sys_df.loc[
+            cleared_sys_df["revision"] == cleared_sys_df["revision"].max()
+        ]
+        cleared_sys_df = cleared_sys_df.drop(columns=["revision"])
+
+        # Melt the DataFrame
+        df_melted = cleared_sys_df.melt(
+            id_vars=[
+                col for col in cleared_sys_df.columns if col not in self.nfp_columns
+            ],
+            value_vars=self.nfp_columns,
+            var_name=self.environment_col_name,
+            value_name=self.nfp_val_col,
+        )
+
+        # Create a dictionary to map NFP names to their index
+        nfp_index_map = {nfp: idx for idx, nfp in enumerate(self.nfp_columns)}
+
+        # Replace NFP names with their index
+        df_melted[self.environment_col_name] = df_melted[self.environment_col_name].map(
+            nfp_index_map
+        )
+
+        # Sort the DataFrame
+        df_melted = df_melted.sort_values(
+            by=[self.environment_col_name]
+            + [col for col in cleared_sys_df.columns if col not in self.nfp_columns]
+        )
+
+        # Reset the index
+        df_melted = df_melted.reset_index(drop=True)
+
+        # Scale the data
+        scaler = MaxAbsScaler()
+        scaled_data = scaler.fit_transform(
+            df_melted.drop(columns=[self.environment_col_name])
+        )
+
+        # Create a new DataFrame with scaled data
+        scaled_df = pd.DataFrame(
+            scaled_data,
+            columns=[
+                col for col in df_melted.columns if col != self.environment_col_name
+            ],
+        )
+        scaled_df[self.environment_col_name] = df_melted[self.environment_col_name]
+
+        # Reorder columns to match the expected format
+        feature_cols = [
+            col
+            for col in scaled_df.columns
+            if col not in [self.environment_col_name, self.nfp_val_col]
+        ]
+        final_df = scaled_df[
+            feature_cols + [self.environment_col_name, self.nfp_val_col]
+        ]
+
+        return final_df
+
+    def factorize_workload_col(self, df):
+        # No need to factorize as we're using indices directly
+        return df
 
 
 class DataAdapterH2(DataAdapterXZ):

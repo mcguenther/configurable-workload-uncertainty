@@ -2,8 +2,11 @@ import numpyro
 from analysis import Analysis
 import matplotlib
 
+from deepperf import DeepPerfModel
+
 # must be run before any JAX imports
 numpyro.set_host_device_count(50)
+
 
 import argparse
 from experiment import (
@@ -14,6 +17,8 @@ from experiment import (
     EXPERIMENT_NAME,
 )
 import os
+
+print(os.environ)
 import localflow as mlflow
 from data import (
     DataLoaderStandard,
@@ -34,6 +39,23 @@ from data import (
     DataAdapterArtificial,
     DataAdapterVP9,
 )
+
+from datanfp import (
+    DataAdapterNFPApache,
+    DataAdapterNFP7z,
+    DataAdapterNFPbrotli,
+    DataAdapterNFPexastencil,
+    DataAdapterNFPHSQLDB,
+    DataAdapterNFPjump3r,
+    DataAdapterNFPkanzi,
+    DataAdapterNFPLLVM,
+    DataAdapterNFPlrzip,
+    DataAdapterNFPMongoDB,
+    DataAdapterNFPnginx,
+    DataAdapterNFPposgreSQL,
+    DataAdapterNFPposgreVP8,
+    DataAdapterNFPx264,
+)
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression, Lasso
 from sklearn.dummy import DummyRegressor
@@ -48,7 +70,8 @@ from models import (
     MCMCPartialSelfStandardizing,
     MCMCPartialRobustLassoAdaptiveShrinkage,
     MCMCPartialSelfStandardizingConstInfl,
-    MCMCRHS,LassoGridSearchCV
+    MCMCRHS,
+    LassoGridSearchCV,
 )
 import mlfloweval
 
@@ -88,6 +111,12 @@ def main():
     parser.add_argument("--plot", action="store_true", help="Enable debug mode")
     parser.add_argument("--store", action="store_true", help="Enable debug mode")
     parser.add_argument(
+        "--training-set-size",
+        type=float,
+        help="Disables the sweep over different training set sizes and uses the given size",
+    )
+
+    parser.add_argument(
         "--experiments",
         default=experiment_class_labels.keys(),
         choices=experiment_class_labels.keys(),
@@ -101,6 +130,7 @@ def main():
     do_store = args.store
     num_reps = args.reps
     rep_offset = args.rep_offset
+    training_set_size = args.training_set_size
     chosen_experiments = [experiment_class_labels[e] for e in args.experiments]
     print("Preparing experiments", chosen_experiments)
 
@@ -122,7 +152,15 @@ def main():
         # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
         # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
+        # LAST ACTIVE:
+        chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
+        chosen_model_lbls.extend(["cpooling-mcmc-1model"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
         chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
+
+        # chosen_model_lbls.extend(["cpooling-rf"])
+        # chosen_model_lbls.extend(["no-pooling-rf"])
+
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
 
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-pw"])
@@ -143,6 +181,9 @@ def main():
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe-pw"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-selfstd"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-extra", "partial-pooling-mcmc-robust", "partial-pooling-mcmc-horseshoe"])
+
+        # chosen_model_lbls.extend(["model_deeperf_cpooling"])
+        # chosen_model_lbls.extend(["model_deeperf_no_pooling"])
 
         # number of pairwise interactions > 10N for N>=22
         # train_sizes = (
@@ -170,21 +211,21 @@ def main():
             0.5,
             # 0.75,
             # # 0.9,
-            # 1.0,
+            1.0,
             # # 1.1,
             # 1.25,
-            # 1.5,
-            # # 1.75,
+            1.5,
+            # 1.75,
             # 2,
             # 3.0,
             # 5,
         )
 
-        n_reps = 1
+        n_reps = 3
         rnds = get_rep_ids(n_reps, num_reps, rep_offset)
 
         selected_data = (
-            "jump3r",
+            # "jump3r",
             # "H2",
             # "xz",  # bad results
             # "x264",  # bad results
@@ -196,10 +237,24 @@ def main():
             # "artificial",
             # "VP9",
             # "x265",
+            # "nfp-apache",
+            # "nfp-7z",
+            # "nfp-brotli",
+            # "nfp-exastencils",
+            # "nfp-HSQLDB",
+            "nfp-jump3r",
+            # "nfp-kanzi",
+            # "nfp-LLVM",
+            # "nfp-lrzip",
+            # "nfp-MongoDB",
+            # "nfp-nginx",
+            # "nfp-PostgreSQL",
+            # "nfp-VP8",
+            # "nfp-x264",
         )
         rep_lbl = "debug-1modelvs partial"
     else:
-        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
         train_sizes = (
             0.125,
             0.25,
@@ -210,6 +265,8 @@ def main():
             2,
             3,
         )
+        if training_set_size is not None:
+            train_sizes = (training_set_size,)
 
         default_n_reps = 3
         rnds = get_rep_ids(default_n_reps, num_reps, rep_offset)
@@ -232,22 +289,24 @@ def main():
 
         # chosen_model_lbls.extend(["no-pooling-lin"])
         # chosen_model_lbls.extend(["cpooling-lin"])
-        # chosen_model_lbls.extend(["cpooling-rf"])
-        # chosen_model_lbls.extend(["no-pooling-rf"])
+        chosen_model_lbls.extend(["cpooling-rf"])
+        chosen_model_lbls.extend(["no-pooling-rf"])
         # # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
 
-        #FINALS
+        # FINALS
         # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
         # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
-        # #
-        chosen_model_lbls.extend(["model_lasso_reg_cpool"])
-        chosen_model_lbls.extend(["model_lasso_reg_no_pool"])
-        chosen_model_lbls.extend(["no-pooling-dummy"])
-        chosen_model_lbls.extend(["cpooling-dummy"])
 
+        # # # LAST UNCOMMENTED!!!!
+        # chosen_model_lbls.extend(["model_lasso_reg_cpool"])
+        # chosen_model_lbls.extend(["model_lasso_reg_no_pool"])
+        # chosen_model_lbls.extend(["no-pooling-dummy"])
+        # chosen_model_lbls.extend(["cpooling-dummy"])
+        #
         chosen_model_lbls.extend(["model_lassocv_reg_no_pool"])
         chosen_model_lbls.extend(["model_lassocv_reg_cpool"])
+        # # # LAST UNCOMMENTED END!!!!
 
         # chosen_model_lbls.extend(["mcmc-selfstd-const-hyper"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-RHS"])
@@ -256,6 +315,9 @@ def main():
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe-pw"])
+
+        # chosen_model_lbls.extend(["model_deeperf_cpooling"])
+        # chosen_model_lbls.extend(["model_deeperf_no_pooling"])
 
     models = {k: v for k, v in models.items() if k in chosen_model_lbls}
 
@@ -304,10 +366,12 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
         "num_chains": mcmc_num_chains,
         "progress_bar": progress_bar,
     }
-    rf_proto = RandomForestRegressor()
+    rf_proto = RandomForestRegressor(n_jobs=3)
     model_rf = NoPoolingEnvModel(rf_proto, preprocessings=[Standardizer()])
 
-    complete_pooling_rf = CompletePoolingEnvModel(rf_proto, preprocessings=[Standardizer()])
+    complete_pooling_rf = CompletePoolingEnvModel(
+        rf_proto, preprocessings=[Standardizer()]
+    )
     lin_reg_proto = LinearRegression()
     model_lin_reg = NoPoolingEnvModel(lin_reg_proto, preprocessings=[Standardizer()])
     model_lin_reg_cpool = CompletePoolingEnvModel(
@@ -341,8 +405,13 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
         lassocv_proto, preprocessings=[Standardizer()]
     )
 
-
-
+    deep_perf_proto = DeepPerfModel()
+    model_deeperf_no_pooling = NoPoolingEnvModel(
+        deep_perf_proto, preprocessings=[Standardizer()]
+    )
+    model_deeperf_cpooling = CompletePoolingEnvModel(
+        deep_perf_proto, preprocessings=[Standardizer()]
+    )
 
     # model_lin_reg_poly = Poly
     dummy_proto = DummyRegressor()
@@ -503,6 +572,8 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
         "model_lasso_reg_no_pool": model_lasso_reg_no_pool,
         "model_lassocv_reg_no_pool": model_lassocv_reg_no_pool,
         "model_lassocv_reg_cpool": model_lassocv_reg_cpool,
+        "model_deeperf_no_pooling": model_deeperf_no_pooling,
+        "model_deeperf_cpooling": model_deeperf_cpooling,
     }
     return models
 
@@ -520,6 +591,20 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
     lbl_z3 = "z3"
     lbl_fastdownward = "fastdownward"
     lbl_artificial = "artificial"
+    lbl_nfp_apache = "nfp-apache"
+    lbl_nfp_7z = "nfp-7z"
+    lbl_nfp_brotli = "nfp-brotli"
+    lbl_nfp_exastencils = "nfp-exastencils"
+    lbl_nfp_HSQLDB = "nfp-HSQLDB"
+    lbl_nfp_jump3r = "nfp-jump3r"
+    lbl_nfp_kanzi = "nfp-kanzi"
+    lbl_nfp_LLVM = "nfp-LLVM"
+    lbl_nfp_lrzip = "nfp-lrzip"
+    lbl_nfp_MongoDB = "nfp-MongoDB"
+    lbl_nfp_nginx = "nfp-nginx"
+    lbl_nfp_PostgreSQL = "nfp-PostgreSQL"
+    lbl_nfp_VP8 = "nfp-VP8"
+    lbl_nfp_x264 = "nfp-x264"
     lbl_VP9 = "VP9"
     all_lbls = [
         lbl_jump_r,
@@ -535,6 +620,20 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
         lbl_fastdownward,
         lbl_artificial,
         lbl_VP9,
+        lbl_nfp_apache,
+        lbl_nfp_7z,
+        lbl_nfp_brotli,
+        lbl_nfp_exastencils,
+        lbl_nfp_HSQLDB,
+        lbl_nfp_jump3r,
+        lbl_nfp_kanzi,
+        lbl_nfp_LLVM,
+        lbl_nfp_lrzip,
+        lbl_nfp_MongoDB,
+        lbl_nfp_nginx,
+        lbl_nfp_PostgreSQL,
+        lbl_nfp_VP8,
+        lbl_nfp_x264,
     ]
     dataset_lbls = dataset_lbls or all_lbls
 
@@ -642,6 +741,159 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
         data_x265 = DataAdapterVP9(x265_data_raw)
         x265_wl_data: WorkloadTrainingDataSet = data_x265.get_wl_data()
         data_providers[lbl_x265] = x265_wl_data
+
+    ############
+    # NFP DATA #
+    # ##########
+
+    if lbl_nfp_apache in dataset_lbls:
+        path_apache = os.path.join(
+            train_data_folder,
+            "twins-paper-data/Apache/measurements.csv",
+        )
+        apache_data_raw = DataLoaderStandard(path_apache, sep=";")
+        data_apache = DataAdapterNFPApache(apache_data_raw)
+        apache_wl_data: WorkloadTrainingDataSet = data_apache.get_wl_data()
+        data_providers[lbl_nfp_apache] = apache_wl_data
+
+    if lbl_nfp_7z in dataset_lbls:
+        path_apache = os.path.join(
+            train_data_folder,
+            "twins-paper-data/7z/measurements.csv",
+        )
+        apache_data_raw = DataLoaderStandard(path_apache, sep=";")
+        data_apache = DataAdapterNFP7z(apache_data_raw)
+        apache_wl_data: WorkloadTrainingDataSet = data_apache.get_wl_data()
+        data_providers[lbl_nfp_7z] = apache_wl_data
+
+    if lbl_nfp_brotli in dataset_lbls:
+        path_apache = os.path.join(
+            train_data_folder,
+            "twins-paper-data/brotli/measurements.csv",
+        )
+        apache_data_raw = DataLoaderStandard(path_apache, sep=";")
+        data_apache = DataAdapterNFPbrotli(apache_data_raw)
+        apache_wl_data: WorkloadTrainingDataSet = data_apache.get_wl_data()
+        data_providers[lbl_nfp_brotli] = apache_wl_data
+
+    if lbl_nfp_exastencils in dataset_lbls:
+        path_apache = os.path.join(
+            train_data_folder,
+            "twins-paper-data/exastencils/measurements.csv",
+        )
+        apache_data_raw = DataLoaderStandard(path_apache, sep=";")
+        data_apache = DataAdapterNFPexastencil(apache_data_raw)
+        apache_wl_data: WorkloadTrainingDataSet = data_apache.get_wl_data()
+        data_providers[lbl_nfp_exastencils] = apache_wl_data
+
+    if lbl_nfp_HSQLDB in dataset_lbls:
+        path_apache = os.path.join(
+            train_data_folder,
+            "twins-paper-data/HSQLDB/measurements.csv",
+        )
+        apache_data_raw = DataLoaderStandard(path_apache, sep=";")
+        data_apache = DataAdapterNFPHSQLDB(apache_data_raw)
+        apache_wl_data: WorkloadTrainingDataSet = data_apache.get_wl_data()
+        data_providers[lbl_nfp_HSQLDB] = apache_wl_data
+
+    if lbl_nfp_jump3r in dataset_lbls:
+        path_apache = os.path.join(
+            train_data_folder,
+            "twins-paper-data/jump3r/measurements.csv",
+        )
+        apache_data_raw = DataLoaderStandard(path_apache, sep=";")
+        data_apache = DataAdapterNFPjump3r(apache_data_raw)
+        apache_wl_data: WorkloadTrainingDataSet = data_apache.get_wl_data()
+        data_providers[lbl_nfp_jump3r] = apache_wl_data
+
+    if lbl_nfp_kanzi in dataset_lbls:
+        path_apache = os.path.join(
+            train_data_folder,
+            "twins-paper-data/kanzi/measurements.csv",
+        )
+        apache_data_raw = DataLoaderStandard(path_apache, sep=";")
+        data_apache = DataAdapterNFPkanzi(apache_data_raw)
+        apache_wl_data: WorkloadTrainingDataSet = data_apache.get_wl_data()
+        data_providers[lbl_nfp_kanzi] = apache_wl_data
+
+    if lbl_nfp_LLVM in dataset_lbls:
+        path_apache = os.path.join(
+            train_data_folder,
+            "twins-paper-data/LLVM/measurements.csv",
+        )
+        apache_data_raw = DataLoaderStandard(path_apache, sep=";")
+        data_apache = DataAdapterNFPLLVM(apache_data_raw)
+        apache_wl_data: WorkloadTrainingDataSet = data_apache.get_wl_data()
+        data_providers[lbl_nfp_LLVM] = apache_wl_data
+
+    if lbl_nfp_lrzip in dataset_lbls:
+        path_apache = os.path.join(
+            train_data_folder,
+            "twins-paper-data/lrzip/measurements.csv",
+        )
+        apache_data_raw = DataLoaderStandard(path_apache, sep=";")
+        data_apache = DataAdapterNFPlrzip(apache_data_raw)
+        apache_wl_data: WorkloadTrainingDataSet = data_apache.get_wl_data()
+        data_providers[lbl_nfp_lrzip] = apache_wl_data
+
+    if lbl_nfp_MongoDB in dataset_lbls:
+        path_apache = os.path.join(
+            train_data_folder,
+            "twins-paper-data/MongoDB/measurements.csv",
+        )
+        apache_data_raw = DataLoaderStandard(path_apache, sep=";")
+        data_apache = DataAdapterNFPMongoDB(apache_data_raw)
+        apache_wl_data: WorkloadTrainingDataSet = data_apache.get_wl_data()
+        data_providers[lbl_nfp_MongoDB] = apache_wl_data
+
+    if lbl_nfp_nginx in dataset_lbls:
+        path_apache = os.path.join(
+            train_data_folder,
+            "twins-paper-data/nginx/measurements.csv",
+        )
+        apache_data_raw = DataLoaderStandard(path_apache, sep=";")
+        data_apache = DataAdapterNFPnginx(apache_data_raw)
+        apache_wl_data: WorkloadTrainingDataSet = data_apache.get_wl_data()
+        data_providers[lbl_nfp_nginx] = apache_wl_data
+
+    if lbl_nfp_PostgreSQL in dataset_lbls:
+        path_apache = os.path.join(
+            train_data_folder,
+            "twins-paper-data/PostgreSQL/measurements.csv",
+        )
+        apache_data_raw = DataLoaderStandard(path_apache, sep=";")
+        data_apache = DataAdapterNFPposgreSQL(apache_data_raw)
+        apache_wl_data: WorkloadTrainingDataSet = data_apache.get_wl_data()
+        data_providers[lbl_nfp_PostgreSQL] = apache_wl_data
+
+    if lbl_nfp_VP8 in dataset_lbls:
+        path_apache = os.path.join(
+            train_data_folder,
+            "twins-paper-data/VP8/measurements.csv",
+        )
+        apache_data_raw = DataLoaderStandard(path_apache, sep=";")
+        data_apache = DataAdapterNFPposgreVP8(apache_data_raw)
+        apache_wl_data: WorkloadTrainingDataSet = data_apache.get_wl_data()
+        data_providers[lbl_nfp_VP8] = apache_wl_data
+
+    if lbl_nfp_x264 in dataset_lbls:
+        path_apache = os.path.join(
+            train_data_folder,
+            "twins-paper-data/x264/measurements.csv",
+        )
+        apache_data_raw = DataLoaderStandard(path_apache, sep=";")
+        data_apache = DataAdapterNFPx264(apache_data_raw)
+        apache_wl_data: WorkloadTrainingDataSet = data_apache.get_wl_data()
+        data_providers[lbl_nfp_x264] = apache_wl_data
+
+    # env_data = list(data_providers.values())[0]
+    # env_data.get_nfps()
+    # nfp_name = env_data.get_selected_nfp_name()
+    # if "time" in nfp_name.lower():
+    #     total_runtime += np.sum(env_data.get_y(nfp_name))
+    # else:
+    #     print(f"Warning: No time-related NFP found for {system_name}")
+    #     break
 
     print("loaded data")
     return data_providers

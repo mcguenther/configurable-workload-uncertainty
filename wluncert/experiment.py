@@ -17,6 +17,14 @@ from analysis import ModelEvaluation
 from data import SingleEnvData, Standardizer
 from utils import get_date_time_uuid
 import warnings
+from joblib import (
+    parallel_backend,
+    register_parallel_backend,
+    Parallel,
+    delayed,
+    parallel_backend,
+)
+from tqdm import tqdm
 
 # MLFLOW_URI = "http://172.26.92.43:5000"
 MLFLOW_USR = "jdorn"
@@ -91,7 +99,7 @@ class ExperimentTask:
             "relative_train_size": self.rel_train_size,
             "pooling_cat": self.pooling_cat,
             "exp_id": self.exp_id,
-            "n_train_features": len(self.training_features)
+            "n_train_features": len(self.training_features),
             # "training-feature-names": self.training_features,
         }
         # artifact_file = f"tmp/feature_names-{uuid.uuid4()}.txt"
@@ -125,7 +133,10 @@ class ExperimentTransfer(ExperimentTask):
         type_dict = {"experiment-type": self.label}
         any_train_data = self.train_list[0]
         n_train_samples = len(any_train_data)
-        calculated_abs_transfer_budgets = {rel:max(int(rel * n_train_samples), 3) for rel in self.relative_transfer_sample_budges}
+        calculated_abs_transfer_budgets = {
+            rel: max(int(rel * n_train_samples), 3)
+            for rel in self.relative_transfer_sample_budges
+        }
         log_dict = {
             "absolute_transfer_budgets": self.transfer_sample_budgets,
             "relative_to_absolute_mapped_budgets": calculated_abs_transfer_budgets,
@@ -138,7 +149,16 @@ class ExperimentTransfer(ExperimentTask):
         loo_wise_standardized_test_sets = {}
         n_envs = len(self.train_list)
         env_ids = list(range(n_envs))
-        joint_abs_train_samples = sorted(list(set([*self.transfer_sample_budgets, *calculated_abs_transfer_budgets.values()])))
+        joint_abs_train_samples = sorted(
+            list(
+                set(
+                    [
+                        *self.transfer_sample_budgets,
+                        *calculated_abs_transfer_budgets.values(),
+                    ]
+                )
+            )
+        )
         for n_transfer_samples in joint_abs_train_samples:
             if n_train_samples <= n_transfer_samples:
                 # print(
@@ -163,7 +183,10 @@ class ExperimentTransfer(ExperimentTask):
                                 "number_of_source_envs": loo_source_envs_budget,
                             }
                         )
-                        if self.eval_permutation_num_cap and len(training_env_sets) > self.eval_permutation_num_cap:
+                        if (
+                            self.eval_permutation_num_cap
+                            and len(training_env_sets) > self.eval_permutation_num_cap
+                        ):
                             unique_seed = hash(
                                 (self.rnd, n_transfer_samples, loo_source_envs_budget)
                             )
@@ -355,106 +378,110 @@ class Replication:
         self.parent_run_id = None
         self.experiment_name = f"uncertainty-learning-{self.replication_lbl}"
 
-    def run(self):
-        # if not mlflow.create_experiment(experiment_name):
-        # mlflow.set_tracking_uri(
-        #     "file:///home/jdorn/tmp/workload-uncertainty-learning/wluncert/mlflow/"
-        # )
-        # mlflow.set_experiment(experiment_name=self.experiment_name)
+    def provision_experiment(self, args):
+        model_lbl, model_proto, data_lbl, data_set, train_size, rnd = args
+        max_train_size = max(self.train_sizes_relative_to_option_number)
+        data_per_env: List[SingleEnvData] = data_set.get_workloads_data()
+        train_list = []
+        test_list = []
 
+        rng = np.random.default_rng(rnd)
+        seeds = [
+            rng.integers(0, 2**30, dtype=np.uint32) for _ in range(len(data_per_env))
+        ]
+
+        for i, env_data in zip(seeds, data_per_env):
+            new_seed_for_env = i
+            split = env_data.get_split(
+                rnd=new_seed_for_env,
+                n_train_samples_rel_opt_num=train_size,
+                n_test_samples_rel_opt_num=max_train_size,
+            )
+            train_data = split.train_data
+            train_list.append(train_data)
+            test_list.append(env_data)
+
+        abs_train_size = len(train_list[0])
+        tasks = []
+
+        for task_class in self.experiment_classes:
+            model_proto_for_env = copy.deepcopy(model_proto)
+            model_proto_for_env.set_envs(data_set)
+            pooling_cat = model_proto_for_env.get_pooling_cat()
+            new_task = task_class(
+                model_lbl,
+                model_proto_for_env,
+                data_lbl,
+                train_list,
+                test_list,
+                train_size=abs_train_size,
+                pooling_cat=pooling_cat,
+                rel_train_size=train_size,
+                exp_id=self.experiment_name,
+                rnd=rnd,
+            )
+            tasks.append(new_task)
+
+        return tasks
+
+    def run(self):
         mlflow.set_tracking_uri(MLFLOW_URI)
         mlflow.set_experiment(experiment_name=EXPERIMENT_NAME)
         run_name = self.experiment_name.replace(" ", "")
         with mlflow.start_run(run_name=run_name) as run:
             self.parent_run_id = run.info.run_id
             print(self.parent_run_id)
-        time.sleep(0.2)
-        # mlflow.end_run()
 
         tasks = {key: [] for key in self.experiment_classes}
-        for model_lbl, model_proto in self.models.items():
-            for data_lbl, data_set in self.data_providers.items():
-                max_train_size = max(self.train_sizes_relative_to_option_number)
-                for train_size in self.train_sizes_relative_to_option_number:
-                    for rnd in self.rnds:
-                        data_per_env: List[
-                            SingleEnvData
-                        ] = data_set.get_workloads_data()
-                        train_list = []
-                        test_list = []
 
-                        rng = np.random.default_rng(rnd)
-                        seeds = [
-                            rng.integers(0, 2**30, dtype=np.uint32)
-                            for r in range(len(data_per_env))
-                        ]
-                        for i, env_data in zip(seeds, data_per_env):
-                            # new_seed_for_env = rng.integers(0, 2**30, dtype=np.uint32)
-                            new_seed_for_env = i
-                            split = env_data.get_split(
-                                rnd=new_seed_for_env,
-                                n_train_samples_rel_opt_num=train_size,
-                                n_test_samples_rel_opt_num=max_train_size,
-                            )
-                            train_data = split.train_data
-                            train_list.append(train_data)
-                            test_list.append(env_data)
-                        abs_train_size = len(train_list[0])
-                        for task_class in self.experiment_classes:
-                            model_proto_for_env = copy.deepcopy(model_proto)
-                            model_proto_for_env.set_envs(data_set)
-                            pooling_cat = model_proto_for_env.get_pooling_cat()
-                            new_task = task_class(
-                                model_lbl,
-                                model_proto_for_env,
-                                data_lbl,
-                                train_list,
-                                test_list,
-                                train_size=abs_train_size,
-                                pooling_cat=pooling_cat,
-                                rel_train_size=train_size,
-                                exp_id=self.experiment_name,
-                                rnd=rnd,
-                            )
-                            tasks[task_class].append(new_task)
+        # Prepare arguments for parallel execution
+        args_list = [
+            (model_lbl, model_proto, data_lbl, data_set, train_size, rnd)
+            for model_lbl, model_proto in self.models.items()
+            for data_lbl, data_set in self.data_providers.items()
+            for train_size in self.train_sizes_relative_to_option_number
+            for rnd in self.rnds
+        ]
+        print(f"Starting to provision {len(args_list)} experiments", flush=True)
 
-        print("provisioned experiments", flush=True)
+        # Use joblib for parallelization
+
+        with parallel_backend("multiprocessing", n_jobs=-4):
+            results = Parallel(
+                # n_jobs=-4,
+                verbose=1,
+                batch_size=150,
+                # return_as="generator_unordered",
+            )(delayed(self.provision_experiment)(args) for args in args_list)
+
+        # Flatten the results and organize tasks
+        for task_list in results:
+            for task in task_list:
+                tasks[type(task)].append(task)
+
+        print("Provisioned experiments", flush=True)
 
         random.seed(self.rnds[0])
-        # results = {key: [] for key in tasks}
-        # scores_list = []
-        # metas_list = []
-        # result_dict = {}
         for task_type in tasks:
             random.shuffle(tasks[task_type])
             print(f"Planning {self.n_jobs} jobs")
 
-            if self.n_jobs:
-                Parallel(n_jobs=self.n_jobs)(
-                    delayed(self.handle_task)(task) for task in tqdm(tasks[task_type])
-                )
-            else:
-                self.progress_bar = tqdm(
-                    total=len(tasks),
-                    desc="Running multitask learning tasks",
-                    unit="task",
-                )
-                for type_wise_tasks in tasks[task_type]:
-                    self.handle_task(type_wise_tasks)
-                    # self.progress_bar.update(1)
-                self.progress_bar.close()
+            # for task in tqdm(tasks[task_type]):
+            #     self.handle_task(task)
+
+            # Use joblib for task execution
+            Parallel(n_jobs=self.n_jobs, verbose=10)(
+                delayed(self.handle_task)(task) for task in tqdm(tasks[task_type])
+            )
+
         print(self.parent_run_id)
         return self.parent_run_id
 
-    # def handle_task(self, progress_bar, task):
     def handle_task(self, task: ExperimentTask):
         mlflow.set_tracking_uri(MLFLOW_URI)
         mlflow.set_experiment(experiment_name=EXPERIMENT_NAME)
-        # mlflow.set_experiment(experiment_name=self.experiment_name)
         run_name = task.get_id()
-        with mlflow.start_run(
-            run_id=self.parent_run_id  # self.experiment_name.replace(" ", ""),
-        ):
+        with mlflow.start_run(run_id=self.parent_run_id):
             with mlflow.start_run(run_name=run_name, nested=True):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", category=UserWarning)

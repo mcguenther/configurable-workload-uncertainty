@@ -21,3 +21,9 @@ pycosa@git+https://github.com/smba/pycosa-toolbox@6a3632c448003347c203187dc94a15
 mlflow
 boto3
 black==23.7.0
+typing-extensions==4.10.0
+tensorflow[and-cuda]==2.13.1
+torch==2.1
+tensorrt==10.0.1
+openpyxl==3.1.2
+scipy<=1.12.0,>=1.6.0
