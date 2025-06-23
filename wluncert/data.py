@@ -758,6 +758,38 @@ class DataAdapterArtificial(DataAdapter):
         return noisy_df
 
 
+class DataAdapterTuxKconfig(DataAdapter):
+    """Adapter for the TuxKConfig dataset aggregated from OpenML"""
+
+    def __init__(self, data_loader: DataLoaderStandard):
+        self.environment_col_name = "version"
+        self.nfps = ["binary_size"]
+        self.environment_lables = None
+        super().__init__(data_loader, self.environment_col_name)
+
+    def get_environment_col_name(self):
+        return self.environment_col_name
+
+    def get_environment_lables(self):
+        return list(self.environment_lables)
+
+    def get_nfps(self):
+        return self.nfps
+
+    def get_transformed_df(
+        self,
+        cleared_sys_df,
+    ):
+        cleared_sys_df = self.factorize_workload_col(cleared_sys_df)
+        all_cols = cleared_sys_df.columns
+        middle_cols = [self.environment_col_name]
+        options = set(all_cols) - {*self.nfps, *middle_cols}
+        cleared_sys_df = cleared_sys_df[
+            [*options, self.environment_col_name, *self.nfps]
+        ]
+        return cleared_sys_df
+
+
 def remove_multicollinearity(df):
     return util.remove_multicollinearity(df)
 

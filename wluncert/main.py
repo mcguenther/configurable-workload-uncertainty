@@ -38,6 +38,7 @@ from data import (
     DataAdapterFastdownward,
     DataAdapterArtificial,
     DataAdapterVP9,
+    DataAdapterTuxKconfig,
 )
 
 from datanfp import (
@@ -605,6 +606,7 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
     lbl_nfp_PostgreSQL = "nfp-PostgreSQL"
     lbl_nfp_VP8 = "nfp-VP8"
     lbl_nfp_x264 = "nfp-x264"
+    lbl_tuxkconfig = "tuxkconfig"
     lbl_VP9 = "VP9"
     all_lbls = [
         lbl_jump_r,
@@ -634,6 +636,7 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
         lbl_nfp_PostgreSQL,
         lbl_nfp_VP8,
         lbl_nfp_x264,
+        lbl_tuxkconfig,
     ]
     dataset_lbls = dataset_lbls or all_lbls
 
@@ -741,6 +744,17 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
         data_x265 = DataAdapterVP9(x265_data_raw)
         x265_wl_data: WorkloadTrainingDataSet = data_x265.get_wl_data()
         data_providers[lbl_x265] = x265_wl_data
+
+    if lbl_tuxkconfig in dataset_lbls:
+        path_tuxkc = os.path.join(
+            train_data_folder,
+            "tuxkconfig_datasets",
+            "tuxkconfig_merged.csv",
+        )
+        tuxkc_data_raw = DataLoaderStandard(path_tuxkc)
+        data_tuxkc = DataAdapterTuxKconfig(tuxkc_data_raw)
+        tuxkc_wl_data: WorkloadTrainingDataSet = data_tuxkc.get_wl_data()
+        data_providers[lbl_tuxkconfig] = tuxkc_wl_data
 
     ############
     # NFP DATA #
