@@ -190,9 +190,11 @@ class SingleEnvDataNormalized(SingleEnvData):
         for nfp_name in self.nfps:
             y = np.atleast_2d(self.get_y(nfp_name)).T
             if scaler:
-                y_scaled = scaler[nfp_name].transform(y)
-            y_scaler = StandardScaler()
-            y_scaled = y_scaler.fit_transform(y)
+                y_scaler = scaler[nfp_name]
+            else:
+                y_scaler = StandardScaler()
+                y_scaler.fit(y)
+            y_scaled = y_scaler.transform(y)
             self.df[nfp_name] = y_scaled.ravel()
             self.scaler_y[nfp_name] = y_scaler
 
