@@ -1,3 +1,4 @@
+import os
 import unittest
 
 from eda4uncert.bayesinference import PyroMCMCRegressor
@@ -15,8 +16,13 @@ class TestStringMethods(unittest.TestCase):
         assert is_valid_grammar(US_PHONE_GRAMMAR, supported_opts={'prob'})
 
     def test_train_test_data(self):
-        sys = ConfSysData(
-            "/home/jdorn/code/probabilistic-regression/SupplementaryWebsite/MeasuredPerformanceValues/x264/measurements-cleared.csv")
+        data_path = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "training-data",
+            "h2.csv",
+        )
+        sys = ConfSysData(data_path)
         sys.test_train_split()
         return sys
 
