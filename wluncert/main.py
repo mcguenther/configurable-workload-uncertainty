@@ -737,7 +737,7 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
     if lbl_VP9 in dataset_lbls:
         path_vp9 = os.path.join(
             train_data_folder,
-            "performance-across-workloads-and-evolution/vp9/measurements_1.13.0-t_wise.csv",
+            "measurements_VP9_1.13.0-t_wise.csv",
         )
         vp9_data_raw = DataLoaderStandard(path_vp9)
         data_vp9 = DataAdapterVP9(vp9_data_raw)
@@ -747,7 +747,7 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
     if lbl_x265 in dataset_lbls:
         path_x265 = os.path.join(
             train_data_folder,
-            "performance-across-workloads-and-evolution/x265/measurements_3.5-t_wise.csv",
+            "measurements_x265_3.5-t_wise.csv",
         )
         x265_data_raw = DataLoaderStandard(path_x265)
         data_x265 = DataAdapterVP9(x265_data_raw)
