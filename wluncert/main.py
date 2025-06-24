@@ -758,7 +758,7 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
         path_tuxkc = os.path.join(
             train_data_folder,
             "tuxkconfig_datasets",
-            "tuxkconfig_merged.csv",
+            "tuxkconfig_merged.parquet",
         )
         tuxkc_data_raw = DataLoaderStandard(path_tuxkc)
         data_tuxkc = DataAdapterTuxKconfig(tuxkc_data_raw)
