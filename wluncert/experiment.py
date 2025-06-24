@@ -361,6 +361,7 @@ class Replication:
         replication_lbl="last-experiment",
         plot=False,
         do_transfer_task=False,
+        max_test_samples_abs=None,
     ):
         self.replication_lbl = get_date_time_uuid() + "-" + replication_lbl
         self.progress_bar = None
@@ -375,6 +376,7 @@ class Replication:
         self.rnds = rnds if rnds is not None else [0]
         self.result = None
         self.do_transfer_task = do_transfer_task
+        self.max_test_samples_abs = max_test_samples_abs
         self.parent_run_id = None
         self.experiment_name = f"uncertainty-learning-{self.replication_lbl}"
 
@@ -395,11 +397,12 @@ class Replication:
             split = env_data.get_split(
                 rnd=new_seed_for_env,
                 n_train_samples_rel_opt_num=train_size,
-                n_test_samples_rel_opt_num=max_train_size,
+                max_train_samples_rel_opt_num=max_train_size,
+                max_test_samples_abs=self.max_test_samples_abs,
             )
             train_data = split.train_data
             train_list.append(train_data)
-            test_list.append(env_data)
+            test_list.append(split.test_data)
 
         abs_train_size = len(train_list[0])
         tasks = []

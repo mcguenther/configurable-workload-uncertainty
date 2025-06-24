@@ -106,24 +106,51 @@ class SingleEnvData:
         n_train_samples_abs=None,
         n_train_samples_rel_opt_num=None,
         rnd=0,
-        n_test_samples_rel_opt_num=None,
+        max_train_samples_rel_opt_num=None,
+        max_test_samples_abs=None,
     ):
+        """Return a train/test split.
+
+        If ``max_train_samples_rel_opt_num`` is given, the test set comprises all
+        samples that are **not** part of the largest training subset determined
+        by this parameter. Smaller training sets are sampled from that largest
+        training subset so that every training set is contained in it.
+
+        ``max_test_samples_abs`` can be used to further subsample the resulting
+        test set to at most this many rows. Sampling respects ``rnd`` so it is
+        deterministic for a given seed.
+        """
+
         n_opts = self.get_n_options()
         absolute_train_size = self.map_real_to_abs_number(
             n_opts, n_train_samples_abs, n_train_samples_rel_opt_num
         )
-        # print("Splitting train set with abs samples of", absolute_train_size)
-        # absolute_train_size = min(absolute_train_size, len(self.df))
-        df_train, df_test = train_test_split(
-            self.df, train_size=absolute_train_size, random_state=rnd
-        )
-        if n_test_samples_rel_opt_num:
-            absolute_test_size = self.map_real_to_abs_number(
-                n_opts, None, n_test_samples_rel_opt_num
+
+        if max_train_samples_rel_opt_num:
+            absolute_max_train_size = self.map_real_to_abs_number(
+                n_opts, None, max_train_samples_rel_opt_num
             )
-            _, df_test = train_test_split(
-                self.df, train_size=absolute_test_size, random_state=rnd
+            df_largest_train, df_test = train_test_split(
+                self.df, train_size=absolute_max_train_size, random_state=rnd
             )
+            if absolute_train_size == absolute_max_train_size:
+                df_train = df_largest_train
+            else:
+                df_train, _ = train_test_split(
+                    df_largest_train,
+                    train_size=absolute_train_size,
+                    random_state=rnd,
+                )
+        else:
+            df_train, df_test = train_test_split(
+                self.df, train_size=absolute_train_size, random_state=rnd
+            )
+
+        if max_test_samples_abs is not None and len(df_test) > max_test_samples_abs:
+            df_test, _ = train_test_split(
+                df_test, train_size=max_test_samples_abs, random_state=rnd
+            )
+
         train_data = SingleEnvData(df_train, self.env_col_name, self.nfps)
         test_data = SingleEnvData(df_test, self.env_col_name, self.nfps)
 
