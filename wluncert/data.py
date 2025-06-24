@@ -297,7 +297,10 @@ class DataLoaderStandard:
         self.sep = sep
 
     def get_standard_CSV(self):
-        sys_df = pd.read_csv(self.base_path, sep=self.sep)
+        if str(self.base_path).endswith(".parquet"):
+            sys_df = pd.read_parquet(self.base_path)
+        else:
+            sys_df = pd.read_csv(self.base_path, sep=self.sep)
         df_no_multicollinearity = remove_multicollinearity(sys_df)
         cleared_sys_df = copy.deepcopy(df_no_multicollinearity)
         return cleared_sys_df
