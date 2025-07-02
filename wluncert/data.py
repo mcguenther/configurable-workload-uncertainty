@@ -4,18 +4,15 @@ import copy
 from typing import List
 
 import pandas as pd
-import scipy
-from pycosa import util
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import (
     StandardScaler,
     PolynomialFeatures,
-    MinMaxScaler,
     MaxAbsScaler,
 )
 
-from jax import numpy as jnp
+from utils import remove_multicollinearity
 
 
 def has_multiple_columns(data):
@@ -327,7 +324,9 @@ class DataLoaderStandard:
 
     def get_standard_CSV(self):
         if str(self.base_path).endswith(".parquet"):
-            sys_df = pd.read_parquet(self.base_path)
+            print("start reading parquet")
+            sys_df = pd.read_parquet(self.base_path, engine="pyarrow")
+            print("end reading parquet")
         else:
             sys_df = pd.read_csv(self.base_path, sep=self.sep)
         df_no_multicollinearity = remove_multicollinearity(sys_df)
@@ -822,10 +821,6 @@ class DataAdapterTuxKconfig(DataAdapter):
             [*options, self.environment_col_name, *self.nfps]
         ]
         return cleared_sys_df
-
-
-def remove_multicollinearity(df):
-    return util.remove_multicollinearity(df)
 
 
 class Preprocessing(ABC):

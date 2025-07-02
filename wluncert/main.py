@@ -154,14 +154,15 @@ def main():
         # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
         # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
-        # LAST ACTIVE:
-        chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
-        chosen_model_lbls.extend(["cpooling-mcmc-1model"])
-        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
-        chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
 
-        # chosen_model_lbls.extend(["cpooling-rf"])
-        # chosen_model_lbls.extend(["no-pooling-rf"])
+        # LAST ACTIVE:
+        # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
+        # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
+
+        chosen_model_lbls.extend(["cpooling-rf"])
+        chosen_model_lbls.extend(["no-pooling-rf"])
 
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
 
@@ -239,12 +240,13 @@ def main():
             # "artificial",
             # "VP9",
             # "x265",
+            "tuxkconfig",
             # "nfp-apache",
             # "nfp-7z",
             # "nfp-brotli",
             # "nfp-exastencils",
             # "nfp-HSQLDB",
-            "nfp-jump3r",
+            # "nfp-jump3r",
             # "nfp-kanzi",
             # "nfp-LLVM",
             # "nfp-lrzip",
@@ -760,6 +762,7 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
             "tuxkconfig_datasets",
             "tuxkconfig_merged.parquet",
         )
+
         tuxkc_data_raw = DataLoaderStandard(path_tuxkc)
         data_tuxkc = DataAdapterTuxKconfig(tuxkc_data_raw)
         tuxkc_wl_data: WorkloadTrainingDataSet = data_tuxkc.get_wl_data()
