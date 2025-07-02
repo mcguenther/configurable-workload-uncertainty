@@ -17,14 +17,17 @@ datasets = [
     ("tuxkconfig_508", 46744, "v5.08"),
 ]
 
-data_dir = "tuxkconfig_datasets"
-merged_path = f"tuxkconfig_merged.{'parquet' if USE_PARQUET else 'csv'}"
+script_dir = os.path.dirname(os.path.abspath(__file__))
+data_dir = os.path.join(script_dir, "tuxkconfig_datasets")
+merged_path = os.path.join(
+    data_dir, f"tuxkconfig_merged.{ 'parquet' if USE_PARQUET else 'csv' }"
+)
 os.makedirs(data_dir, exist_ok=True)
 
 merged_df = pd.DataFrame()
 
 for name, dataset_id, version in datasets:
-    extension = 'parquet' if USE_PARQUET else 'csv'
+    extension = "parquet" if USE_PARQUET else "csv"
     file_path = os.path.join(data_dir, f"{name}.{extension}")
 
     if os.path.exists(file_path):
