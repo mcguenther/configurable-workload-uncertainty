@@ -796,7 +796,7 @@ class DataAdapterTuxKconfig(DataAdapter):
 
     def __init__(self, data_loader: DataLoaderStandard):
         self.environment_col_name = "version"
-        self.nfps = ["binary_size"]
+        self.nfps = ["binary-size"]
         self.environment_lables = None
         super().__init__(data_loader, self.environment_col_name)
 

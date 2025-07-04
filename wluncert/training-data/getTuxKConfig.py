@@ -4,7 +4,7 @@ import os
 
 # Use parquet files for faster read/write
 USE_PARQUET = True
-
+FORCE_DOWNLOAD = True
 
 # Dataset info: (name, openml_id, version_label)
 datasets = [
@@ -30,26 +30,29 @@ for name, dataset_id, version in datasets:
     extension = "parquet" if USE_PARQUET else "csv"
     file_path = os.path.join(data_dir, f"{name}.{extension}")
 
-    if os.path.exists(file_path):
+    if not FORCE_DOWNLOAD and os.path.exists(file_path):
         print(f"✅ {name}.{extension} found, using existing file.")
         if USE_PARQUET:
             df = pd.read_parquet(file_path)
         else:
             df = pd.read_csv(file_path)
     else:
-        try:
-            print(f"⬇️ Downloading {name} (ID: {dataset_id})")
-            dataset = openml.datasets.get_dataset(dataset_id)
-            df, y, *_ = dataset.get_data(target="Binary_Size")
-            df["Binary_Size"] = y
-            if USE_PARQUET:
-                df.to_parquet(file_path)
-            else:
-                df.to_csv(file_path, index=False)
-            print(f"📝 Saved {name}.{extension}.")
-        except Exception as e:
-            print(f"❌ Error downloading {name}: {e}")
-            continue
+        print(f"⬇️ Downloading {name} (ID: {dataset_id})")
+        dataset = openml.datasets.get_dataset(dataset_id)
+        download = dataset.get_data()
+        df, *_ = download
+        print(list(df.columns[-25:][::-1]))
+
+        y = df["vmlinux"]
+        df = df.drop(df.columns[-21:], axis=1)
+        df["binary-size"] = y
+        print(list(df.columns[-25:][::-1]))
+
+        if USE_PARQUET:
+            df.to_parquet(file_path)
+        else:
+            df.to_csv(file_path, index=False)
+        print(f"📝 Saved {name}.{extension}.")
 
     df["version"] = version
     if "Binary_Size" in df.columns:
