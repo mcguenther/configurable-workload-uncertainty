@@ -36,66 +36,9 @@ def factorize_if_not_int(df: pd.DataFrame) -> np.ndarray:
 def remove_multicollinearity_limited(
     df: pd.DataFrame, sample_rows: int = 100, max_clique_size: int = 5
 ) -> pd.DataFrame:
-    """Remove redundant mutually exclusive columns using limited clique search.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Input dataframe.
-    sample_rows : int, optional
-        Number of rows to sample when constructing the exclusivity graph.
-    max_clique_size : int, optional
-        Maximum size of cliques to consider when removing columns.
-    """
-
-    print("⏳ Removing multicollinearity (limited)...", end=" ")
-
-    nunique = df.nunique()
-    drop_cols = list(nunique[nunique == 1].index)
-    if "Unnamed: 0" in df.columns:
-        drop_cols.append("Unnamed: 0")
-    df.drop(columns=drop_cols, inplace=True, errors="ignore")
-    print(f"\n🧹 Dropped {len(drop_cols)} constant/index columns.", end=" ")
-
-    if df.empty:
-        print("⚠️ Empty DataFrame after cleanup. Skipping.")
-        return df
-
-    print("\n🔍 Sampling ...", end=" ", flush=True)
-    df_sampled = _sample_df(df, max_rows=sample_rows)
-    print(" and computing exclusive masks...", end=" ", flush=True)
-    arr = factorize_if_not_int(df_sampled)
-
-    features = list(df.columns)
-    mask = _pairwise_exclusive_mask(arr)
-    print("Done.")
-
-    print("🧱 Building exclusivity graph...", end=" ")
-    G = nx.Graph()
-    for i in range(len(features)):
-        for j in range(i + 1, len(features)):
-            if mask[i, j]:
-                G.add_edge(features[i], features[j])
-    print(f"{G.number_of_nodes()} nodes, {G.number_of_edges()} edges.")
-
-    print("🧹 Removing redundant cliques...", end=" ")
-    removed = 0
-    for clique in nx.enumerate_all_cliques(G):
-        if len(clique) > max_clique_size:
-            break
-        if len(clique) < 2:
-            continue
-        if not all(col in df_sampled.columns for col in clique):
-            continue
-        if df_sampled[list(clique)].sum(axis=1).eq(1).all():
-            to_drop = sorted(clique)[0]
-            df.drop(columns=[to_drop], inplace=True)
-            df_sampled.drop(columns=[to_drop], inplace=True)
-            G.remove_node(to_drop)
-            removed += 1
-    print(f"{removed} features removed.")
-
-    print("✅ Done.")
+    print(
+        "Simply returning the same df because algorithm for clique detection does not scale."
+    )
     return df
 
 
