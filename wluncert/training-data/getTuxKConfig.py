@@ -40,7 +40,8 @@ for name, dataset_id, version in datasets:
         try:
             print(f"⬇️ Downloading {name} (ID: {dataset_id})")
             dataset = openml.datasets.get_dataset(dataset_id)
-            df, *_ = dataset.get_data()
+            df, y, *_ = dataset.get_data(target="Binary_Size")
+            df["Binary_Size"] = y
             if USE_PARQUET:
                 df.to_parquet(file_path)
             else:
@@ -51,6 +52,9 @@ for name, dataset_id, version in datasets:
             continue
 
     df["version"] = version
+    if "Binary_Size" in df.columns:
+        columns = [c for c in df.columns if c != "Binary_Size"] + ["Binary_Size"]
+        df = df[columns]
     merged_df = pd.concat([merged_df, df], ignore_index=True)
 
 if USE_PARQUET:
