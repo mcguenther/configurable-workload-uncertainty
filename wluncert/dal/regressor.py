@@ -7,12 +7,12 @@ from sklearn.feature_selection import mutual_info_regression
 from sklearn.utils.validation import check_X_y, check_array, check_is_fitted
 from imblearn.over_sampling import SMOTE
 
-from utils.general import recursive_dividing
+from .utils.general import recursive_dividing
 
-from utils.HINNPerf_data_preproc import DataPreproc
-from utils.HINNPerf_model_runner import ModelRunner
-from utils.HINNPerf_models import MLPHierarchicalModel
-from utils.HINNPerf_args import list_of_param_dicts
+from .utils.HINNPerf_data_preproc import DataPreproc
+from .utils.HINNPerf_model_runner import ModelRunner
+from .utils.HINNPerf_models import MLPHierarchicalModel
+from .utils.HINNPerf_args import list_of_param_dicts
 
 def _depth_search_avg_hv(X, y, min_samples):
     """Return optimal depth using averaging hypervolume."""

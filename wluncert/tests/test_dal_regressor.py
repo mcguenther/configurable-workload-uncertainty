@@ -7,8 +7,12 @@ import pandas as pd
 from sklearn.feature_selection import mutual_info_regression
 from sklearn.metrics import mean_absolute_percentage_error
 
-from dal_regressor import DaLRegressor
-from utils.general import recursive_dividing
+import os
+
+from wluncert.dal.regressor import DaLRegressor
+from wluncert.dal.utils.general import recursive_dividing
+
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "dal", "data")
 
 
 def original_dal_predict(X_train, y_train, X_test):
@@ -75,7 +79,9 @@ class TestDaLRegressor(unittest.TestCase):
 
     def test_dal_regressor_matches_original_with_RF_model(self):
         # Lade Daten
-        data = np.genfromtxt("data/Lrzip.csv", delimiter=",", skip_header=1)
+        data = np.genfromtxt(
+            os.path.join(DATA_DIR, "Lrzip.csv"), delimiter=",", skip_header=1
+        )
         X = data[:, :-1]
         y = data[:, -1]
 
@@ -106,7 +112,9 @@ class TestDaLRegressor(unittest.TestCase):
 
     def test_dal_regressor_matches_original(self):
         # Lade Daten
-        data = np.genfromtxt("data/Lrzip.csv", delimiter=",", skip_header=1)
+        data = np.genfromtxt(
+            os.path.join(DATA_DIR, "Lrzip.csv"), delimiter=",", skip_header=1
+        )
         X = data[:, :-1]
         y = data[:, -1]
 
@@ -142,7 +150,9 @@ class TestDaLRegressor(unittest.TestCase):
         ]
         results = []
         for fname in datasets:
-            data = np.genfromtxt(f"data/{fname}", delimiter=",", skip_header=1)
+            data = np.genfromtxt(
+                os.path.join(DATA_DIR, fname), delimiter=",", skip_header=1
+            )
             X, y = data[:, :-1], data[:, -1]
             X_train, y_train = X[:100], y[:100]
             X_test, y_test = X[100:150], y[100:150]

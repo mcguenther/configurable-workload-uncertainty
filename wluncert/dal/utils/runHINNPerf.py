@@ -7,11 +7,11 @@ from random import sample
 from numpy import genfromtxt
 import pandas as pd
 from collections import Counter
-from utils.general import get_non_zero_indexes, process_training_data
-from utils.HINNPerf_data_preproc import DataPreproc
-from utils.HINNPerf_args import list_of_param_dicts
-from utils.HINNPerf_models import MLPHierarchicalModel
-from utils.HINNPerf_model_runner import ModelRunner
+from .general import get_non_zero_indexes, process_training_data
+from .HINNPerf_data_preproc import DataPreproc
+from .HINNPerf_args import list_of_param_dicts
+from .HINNPerf_models import MLPHierarchicalModel
+from .HINNPerf_model_runner import ModelRunner
 import warnings
 warnings.filterwarnings('ignore')
 

@@ -1,4 +1,4 @@
-from utils.HINNPerf_data_preproc import DataPreproc
+from .HINNPerf_data_preproc import DataPreproc
 import numpy as np
 import time
 import tensorflow as tf

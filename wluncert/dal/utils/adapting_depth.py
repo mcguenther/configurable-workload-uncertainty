@@ -9,16 +9,16 @@ import os
 from collections import Counter
 from doepy import read_write
 from random import sample
-from utils.general import build_model
-from utils.hyperparameter_tuning import nn_l1_val, hyperparameter_tuning
+from .general import build_model
+from .hyperparameter_tuning import nn_l1_val, hyperparameter_tuning
 from sklearn import tree
-from utils.mlp_sparse_model_tf2 import MLPSparseModel
+from .mlp_sparse_model_tf2 import MLPSparseModel
 from sklearn.cluster import KMeans
 from sklearn.model_selection import GridSearchCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import mutual_info_regression
 import matplotlib.pyplot as plt
-from utils.general import get_non_zero_indexes, process_training_data
+from .general import get_non_zero_indexes, process_training_data
 import warnings
 warnings.filterwarnings('ignore')
 
