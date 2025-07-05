@@ -55,9 +55,6 @@ for name, dataset_id, version in datasets:
         print(f"📝 Saved {name}.{extension}.")
 
     df["version"] = version
-    if "Binary_Size" in df.columns:
-        columns = [c for c in df.columns if c != "Binary_Size"] + ["Binary_Size"]
-        df = df[columns]
     merged_df = pd.concat([merged_df, df], ignore_index=True)
 
 if USE_PARQUET:
