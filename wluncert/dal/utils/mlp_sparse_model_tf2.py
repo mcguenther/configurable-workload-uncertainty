@@ -3,7 +3,7 @@ import tensorflow as tf2
 tf.disable_v2_behavior()
 import numpy as np
 import sys
-from utils.general import init_dir, random_mini_batches
+from .general import init_dir, random_mini_batches
 
 
 def neural_net(tf_x, n_layer, n_neuron, lambd):
@@ -17,19 +17,29 @@ def neural_net(tf_x, n_layer, n_neuron, lambd):
     # Only apply l1 regularization on the 1st layer
     # Set seed for Xavier initializer for paper replication
     layer = tf_x
-    for i in range(1, n_layer+1):
-        layer = tf.keras.layers.Dense(
-            n_neuron,
-            activation=tf.nn.relu,
-            kernel_initializer=tf2.initializers.GlorotUniform(seed=1),
-        )(layer)
-    output = tf.keras.layers.Dense(1)(layer)
+    for i in range(1, n_layer + 1):
+        if i == 1:
+            layer = tf.keras.layers.Dense(
+                n_neuron,
+                activation=tf.nn.relu,
+                kernel_initializer=tf2.initializers.GlorotUniform(seed=1),
+                kernel_regularizer=tf.keras.regularizers.l1(float(lambd)),
+                name=str(i),
+            )(layer)
+        else:
+            layer = tf.keras.layers.Dense(
+                n_neuron,
+                activation=tf.nn.relu,
+                kernel_initializer=tf2.initializers.GlorotUniform(seed=1),
+                name=str(i),
+            )(layer)
+    output = tf.keras.layers.Dense(1, name='o')(layer)
 
     return output
 
 
-class MLPPlainModel(object):
-    """Generic class for tf mlp models"""
+class MLPSparseModel(object):
+    """Generic class for tf l1-sparse mlp models"""
 
     def __init__(self, config):
         """
@@ -76,10 +86,12 @@ class MLPPlainModel(object):
                                  self._config['num_neuron'],
                                  self._config['lambda'])
 
+
     def _add_loss_op(self):
         """Defines self.loss"""
         l2_loss = tf.losses.get_regularization_loss()
         self.loss = l2_loss + tf.losses.mean_squared_error(self.Y, self.output)
+
 
     def _add_train_op(self, loss):
         """Defines self.train_op that performs an update on a batch
@@ -94,7 +106,6 @@ class MLPPlainModel(object):
         update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
         with tf.control_dependencies(update_ops):
             grads, vs     = zip(*optimizer.compute_gradients(loss))
-#
             grads, gnorm  = tf.clip_by_global_norm(grads, 0.01)
             self.train_op = optimizer.apply_gradients(zip(grads, vs))
 
@@ -103,6 +114,7 @@ class MLPPlainModel(object):
         """Defines self.sess, self.saver and initialize the variables"""
         self.sess = tf.Session()
         self.sess.run(tf.global_variables_initializer())
+        self.saver = tf.compat.v1.train.Saver()
 
 
     def train(self, X_matrix, perf_value, lr_initial):
@@ -132,7 +144,7 @@ class MLPPlainModel(object):
             for minibatch in minibatches:
                 (minibatch_X, minibatch_Y) = minibatch
                 _, t_l, pred = self.sess.run([self.train_op, self.loss, self.output],
-                                             {self.X : X_matrix, self.Y: perf_value, self.lr: lr})
+                                             {self.X: X_matrix, self.Y: perf_value, self.lr: lr})
                 minibatch_loss += t_l/num_minibatches
 
             if epoch % 500 == 0 or epoch == 1:
@@ -145,7 +157,7 @@ class MLPPlainModel(object):
 #                if np.abs(minibatch_loss-l_old)/minibatch_loss < 1e-8:
 #                    break;
 
-            # Store the old cost function
+#            # Store the old cost function
 #            l_old = minibatch_loss
 
             # Decay learning rate
@@ -210,9 +222,8 @@ class MLPPlainModel(object):
         bias_read.append(bias)
         return weights_read, bias_read
 
-
     def read_weights(self, weights, bias):
-        print('Reading weights and bias...')
+        # print('Reading weights and bias...')
         self.weights = weights
         self.bias = bias
 

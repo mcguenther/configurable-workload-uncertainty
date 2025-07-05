@@ -1,5 +1,5 @@
-from utils.mlp_sparse_model_tf2 import MLPSparseModel
-from utils.mlp_plain_model_tf2 import MLPPlainModel
+from .mlp_sparse_model_tf2 import MLPSparseModel
+from .mlp_plain_model_tf2 import MLPPlainModel
 import numpy as np
 import time
 import warnings

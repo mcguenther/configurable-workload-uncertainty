@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 from sklearn.tree import DecisionTreeRegressor
-from utils.general import recursive_dividing
+from wluncert.dal.utils.general import recursive_dividing
 
 class TestRecursiveDividing(unittest.TestCase):
     def test_divisions_match_expected_samples(self):

@@ -3,7 +3,7 @@ from analysis import Analysis
 import matplotlib
 
 from deepperf import DeepPerfModel
-from dal_ext.regressor import DaLExtRegressor
+from wluncert.dal import DaLRegressor
 
 # must be run before any JAX imports
 numpyro.set_host_device_count(50)
@@ -417,7 +417,7 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
         deep_perf_proto, preprocessings=[Standardizer()]
     )
 
-    dal_proto = DaLExtRegressor()
+    dal_proto = DaLRegressor()
     model_dal_no_pooling = NoPoolingEnvModel(dal_proto, preprocessings=[Standardizer()])
     model_dal_cpooling = CompletePoolingEnvModel(
         dal_proto, preprocessings=[Standardizer()]
