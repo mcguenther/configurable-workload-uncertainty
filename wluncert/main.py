@@ -1,3 +1,12 @@
+import sys
+
+print(
+    sys.version
+)  # Full version string (e.g., '3.11.4 (main, Jun  7 2023, 12:33:22) [Clang 14.0.0]')
+print(
+    sys.version_info
+)  # Version tuple (e.g., sys.version_info(major=3, minor=11, micro=4, releaselevel='final', serial=0))
+
 import numpyro
 from analysis import Analysis
 import matplotlib
@@ -164,6 +173,9 @@ def main():
         chosen_model_lbls.extend(["cpooling-rf"])
         chosen_model_lbls.extend(["no-pooling-rf"])
 
+        chosen_model_lbls.extend(["model_dal_cpooling"])
+        chosen_model_lbls.extend(["model_dal_no_pooling"])
+
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
 
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-pw"])
@@ -229,7 +241,7 @@ def main():
 
         selected_data = (
             # "jump3r",
-            # "H2",
+            "H2",
             # "xz",  # bad results
             # "x264",  # bad results
             # "batik",
@@ -240,7 +252,7 @@ def main():
             # "artificial",
             # "VP9",
             # "x265",
-            "tuxkconfig",
+            # "tuxkconfig",
             # "nfp-apache",
             # "nfp-7z",
             # "nfp-brotli",

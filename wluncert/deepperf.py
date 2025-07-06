@@ -14,6 +14,8 @@ from sklearn.model_selection import train_test_split
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 import tensorflow as tf
+
+tf.compat.v1.keras.layers.enable_v2_dtype_behavior()
 import numpy as np
 from sklearn.base import BaseEstimator
 import multiprocessing
