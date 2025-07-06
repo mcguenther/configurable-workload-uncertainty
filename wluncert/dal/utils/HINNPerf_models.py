@@ -48,6 +48,7 @@ class MLPHierarchicalModel():
                 1,
                 activation=None,
                 kernel_regularizer=tf.keras.regularizers.l2(float(self.lamda)),
+                dtype=tf.float32,
             )(linear_input)
             output = output + linear_output
         
@@ -62,15 +63,21 @@ class MLPHierarchicalModel():
                     activation=tf.nn.relu,
                     kernel_initializer=tf2.initializers.GlorotUniform(seed=1),
                     kernel_regularizer=tf.keras.regularizers.l1(float(self.lamda)),
+                    dtype=tf.float32,
                 )(layer)
             else:
                 layer = tf.keras.layers.Dense(
                     self.num_neuron,
                     activation=tf.nn.relu,
                     kernel_initializer=tf2.initializers.GlorotUniform(seed=1),
+                    dtype=tf.float32,
                 )(layer)
-        backcast = tf.keras.layers.Dense(self.input_dim, activation=tf.nn.relu)(layer)
-        forecast = tf.keras.layers.Dense(1)(layer)
+        backcast = tf.keras.layers.Dense(
+            self.input_dim,
+            activation=tf.nn.relu,
+            dtype=tf.float32,
+        )(layer)
+        forecast = tf.keras.layers.Dense(1, dtype=tf.float32)(layer)
 
         return backcast, forecast
     
