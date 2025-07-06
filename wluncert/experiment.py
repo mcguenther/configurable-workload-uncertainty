@@ -449,11 +449,12 @@ class Replication:
 
         # Use joblib for parallelization
 
-        with parallel_backend("multiprocessing", n_jobs=-4):
+        # with parallel_backend("multiprocessing", n_jobs=-4):
+        with parallel_backend("multiprocessing", n_jobs=self.n_jobs):
             results = Parallel(
                 # n_jobs=-4,
                 verbose=1,
-                batch_size=150,
+                # batch_size=150,
                 # return_as="generator_unordered",
             )(delayed(self.provision_experiment)(args) for args in args_list)
 
