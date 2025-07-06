@@ -382,6 +382,10 @@ class Replication:
 
     def provision_experiment(self, args):
         model_lbl, model_proto, data_lbl, data_set, train_size, rnd = args
+        print(
+            f"provisioning model={model_lbl} data={data_lbl} train_size={train_size} rnd={rnd}",
+            flush=True,
+        )
         max_train_size = max(self.train_sizes_relative_to_option_number)
         data_per_env: List[SingleEnvData] = data_set.get_workloads_data()
         train_list = []
@@ -424,6 +428,11 @@ class Replication:
                 rnd=rnd,
             )
             tasks.append(new_task)
+
+        print(
+            f"finished provisioning {len(tasks)} tasks for model={model_lbl} data={data_lbl}",
+            flush=True,
+        )
 
         return tasks
 
@@ -484,10 +493,12 @@ class Replication:
         mlflow.set_tracking_uri(MLFLOW_URI)
         mlflow.set_experiment(experiment_name=EXPERIMENT_NAME)
         run_name = task.get_id()
+        print(f"starting task {run_name}", flush=True)
         with mlflow.start_run(run_id=self.parent_run_id):
             with mlflow.start_run(run_name=run_name, nested=True):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", category=UserWarning)
                     task.run()
+        print(f"finished task {run_name}", flush=True)
         del task.model
         del task

@@ -324,13 +324,19 @@ class DataLoaderStandard:
 
     def get_standard_CSV(self):
         if str(self.base_path).endswith(".parquet"):
-            print("start reading parquet")
+            print(f"start reading parquet {self.base_path}", flush=True)
             sys_df = pd.read_parquet(self.base_path, engine="pyarrow")
-            print("end reading parquet")
+            print(f"end reading parquet shape={sys_df.shape}", flush=True)
         else:
+            print(f"start reading csv {self.base_path}", flush=True)
             sys_df = pd.read_csv(self.base_path, sep=self.sep)
+            print(f"csv loaded shape={sys_df.shape}", flush=True)
         df_no_multicollinearity = remove_multicollinearity(sys_df)
         cleared_sys_df = copy.deepcopy(df_no_multicollinearity)
+        print(
+            f"data after removing multicollinearity shape={cleared_sys_df.shape}",
+            flush=True,
+        )
         return cleared_sys_df
 
     def get_df(self):
