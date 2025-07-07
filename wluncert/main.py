@@ -1,3 +1,16 @@
+import sys
+
+
+print(
+    sys.version
+)  # Full version string (e.g., '3.11.4 (main, Jun  7 2023, 12:33:22) [Clang 14.0.0]')
+
+
+print(
+    sys.version_info
+)  # Version tuple (e.g., sys.version_info(major=3, minor=11, micro=4, releaselevel='final', serial=0))
+
+
 import numpyro
 from analysis import Analysis
 import matplotlib
@@ -40,6 +53,7 @@ from data import (
     DataAdapterFastdownward,
     DataAdapterArtificial,
     DataAdapterVP9,
+    DataAdapterTuxKconfig,
 )
 
 from datanfp import (
@@ -424,6 +438,12 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
         deep_perf_proto, preprocessings=[Standardizer()]
     )
 
+    dal_proto = DaLRegressor()
+    model_dal_no_pooling = NoPoolingEnvModel(dal_proto, preprocessings=[Standardizer()])
+    model_dal_cpooling = CompletePoolingEnvModel(
+        dal_proto, preprocessings=[Standardizer()]
+    )
+
     # model_lin_reg_poly = Poly
     dummy_proto = DummyRegressor()
     model_dummy = NoPoolingEnvModel(dummy_proto)
@@ -585,6 +605,8 @@ def get_all_models(debug, n_jobs, plot, do_store=False):
         "model_lassocv_reg_cpool": model_lassocv_reg_cpool,
         "model_deeperf_no_pooling": model_deeperf_no_pooling,
         "model_deeperf_cpooling": model_deeperf_cpooling,
+        "model_dal_no_pooling": model_dal_no_pooling,
+        "model_dal_cpooling": model_dal_cpooling,
     }
     return models
 
@@ -603,6 +625,7 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
     lbl_fastdownward = "fastdownward"
     lbl_artificial = "artificial"
     lbl_nfp_apache = "nfp-apache"
+    lbl_tuxkconfig = "tuxkconfig"
     lbl_nfp_7z = "nfp-7z"
     lbl_nfp_brotli = "nfp-brotli"
     lbl_nfp_exastencils = "nfp-exastencils"
@@ -752,6 +775,18 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
         data_x265 = DataAdapterVP9(x265_data_raw)
         x265_wl_data: WorkloadTrainingDataSet = data_x265.get_wl_data()
         data_providers[lbl_x265] = x265_wl_data
+
+    if lbl_tuxkconfig in dataset_lbls:
+        path_tuxkc = os.path.join(
+            train_data_folder,
+            "tuxkconfig_datasets",
+            "tuxkconfig_merged.parquet",
+        )
+
+        tuxkc_data_raw = DataLoaderStandard(path_tuxkc)
+        data_tuxkc = DataAdapterTuxKconfig(tuxkc_data_raw)
+        tuxkc_wl_data: WorkloadTrainingDataSet = data_tuxkc.get_wl_data()
+        data_providers[lbl_tuxkconfig] = tuxkc_wl_data
 
     ############
     # NFP DATA #
