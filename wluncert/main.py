@@ -1,18 +1,23 @@
 import sys
 
+
 print(
     sys.version
 )  # Full version string (e.g., '3.11.4 (main, Jun  7 2023, 12:33:22) [Clang 14.0.0]')
+
+
 print(
     sys.version_info
 )  # Version tuple (e.g., sys.version_info(major=3, minor=11, micro=4, releaselevel='final', serial=0))
+
 
 import numpyro
 from analysis import Analysis
 import matplotlib
 
 from deepperf import DeepPerfModel
-from wluncert.dal import DaLRegressor
+from dal import DaLRegressor
+
 
 # must be run before any JAX imports
 numpyro.set_host_device_count(50)
@@ -163,18 +168,17 @@ def main():
         # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
         # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust"])
-
         # LAST ACTIVE:
-        # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
-        # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
+        chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
+        chosen_model_lbls.extend(["cpooling-mcmc-1model"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
-        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
+        chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
 
         chosen_model_lbls.extend(["cpooling-rf"])
         chosen_model_lbls.extend(["no-pooling-rf"])
 
-        chosen_model_lbls.extend(["model_dal_cpooling"])
-        chosen_model_lbls.extend(["model_dal_no_pooling"])
+        # chosen_model_lbls.extend(["model_dal_cpooling"])
+        # chosen_model_lbls.extend(["model_dal_no_pooling"])
 
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
 
@@ -224,7 +228,7 @@ def main():
             # 0.125,
             # 0.25,
             0.5,
-            # 0.75,
+            0.75,
             # # 0.9,
             1.0,
             # # 1.1,
@@ -240,8 +244,8 @@ def main():
         rnds = get_rep_ids(n_reps, num_reps, rep_offset)
 
         selected_data = (
-            # "jump3r",
-            "H2",
+            "jump3r",
+            # "H2",
             # "xz",  # bad results
             # "x264",  # bad results
             # "batik",
@@ -275,11 +279,11 @@ def main():
             0.125,
             0.25,
             0.5,
-            0.75,
+            # 0.75,
             1.0,
-            1.5,
+            # 1.5,
             2,
-            3,
+            # 3,
         )
         if training_set_size is not None:
             train_sizes = (training_set_size,)
@@ -305,14 +309,17 @@ def main():
 
         # chosen_model_lbls.extend(["no-pooling-lin"])
         # chosen_model_lbls.extend(["cpooling-lin"])
-        chosen_model_lbls.extend(["cpooling-rf"])
-        chosen_model_lbls.extend(["no-pooling-rf"])
+
         # # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
 
         # FINALS
-        chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
-        chosen_model_lbls.extend(["cpooling-mcmc-1model"])
-        chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
+        # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
+        # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
+        # chosen_model_lbls.extend(["cpooling-rf"])
+        # chosen_model_lbls.extend(["no-pooling-rf"])
+        chosen_model_lbls.extend(["model_dal_cpooling"])
+        chosen_model_lbls.extend(["model_dal_no_pooling"])
 
         # # # LAST UNCOMMENTED!!!!
         # chosen_model_lbls.extend(["model_lasso_reg_cpool"])
@@ -320,8 +327,10 @@ def main():
         # chosen_model_lbls.extend(["no-pooling-dummy"])
         # chosen_model_lbls.extend(["cpooling-dummy"])
         #
-        chosen_model_lbls.extend(["model_lassocv_reg_no_pool"])
-        chosen_model_lbls.extend(["model_lassocv_reg_cpool"])
+
+        # chosen_model_lbls.extend(["model_lassocv_reg_no_pool"])
+        # chosen_model_lbls.extend(["model_lassocv_reg_cpool"])
+
         # # # LAST UNCOMMENTED END!!!!
 
         # chosen_model_lbls.extend(["mcmc-selfstd-const-hyper"])
@@ -332,8 +341,8 @@ def main():
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe"])
         # chosen_model_lbls.extend(["partial-pooling-mcmc-horseshoe-pw"])
 
-        # chosen_model_lbls.extend(["model_deeperf_cpooling"])
-        # chosen_model_lbls.extend(["model_deeperf_no_pooling"])
+        chosen_model_lbls.extend(["model_deeperf_cpooling"])
+        chosen_model_lbls.extend(["model_deeperf_no_pooling"])
 
     models = {k: v for k, v in models.items() if k in chosen_model_lbls}
 
@@ -616,6 +625,7 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
     lbl_fastdownward = "fastdownward"
     lbl_artificial = "artificial"
     lbl_nfp_apache = "nfp-apache"
+    lbl_tuxkconfig = "tuxkconfig"
     lbl_nfp_7z = "nfp-7z"
     lbl_nfp_brotli = "nfp-brotli"
     lbl_nfp_exastencils = "nfp-exastencils"
@@ -629,7 +639,6 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
     lbl_nfp_PostgreSQL = "nfp-PostgreSQL"
     lbl_nfp_VP8 = "nfp-VP8"
     lbl_nfp_x264 = "nfp-x264"
-    lbl_tuxkconfig = "tuxkconfig"
     lbl_VP9 = "VP9"
     all_lbls = [
         lbl_jump_r,
@@ -659,7 +668,6 @@ def get_datasets(train_data_folder=None, dataset_lbls=None):
         lbl_nfp_PostgreSQL,
         lbl_nfp_VP8,
         lbl_nfp_x264,
-        lbl_tuxkconfig,
     ]
     dataset_lbls = dataset_lbls or all_lbls
 

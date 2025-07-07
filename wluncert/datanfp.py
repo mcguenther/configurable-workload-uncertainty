@@ -1,6 +1,6 @@
 from sklearn.preprocessing import MaxAbsScaler
 
-from wluncert.data import DataLoaderStandard, DataAdapter
+from data import DataLoaderStandard, DataAdapter
 import pandas as pd
 
 from abc import abstractmethod
