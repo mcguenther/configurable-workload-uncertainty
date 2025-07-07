@@ -458,8 +458,8 @@ class Replication:
 
         # Use joblib for parallelization
 
-        # with parallel_backend("multiprocessing", n_jobs=-4):
-        with parallel_backend("multiprocessing", n_jobs=self.n_jobs):
+        with parallel_backend("multiprocessing", n_jobs=-4):
+            # with parallel_backend("multiprocessing", n_jobs=self.n_jobs):
             results = Parallel(
                 # n_jobs=-4,
                 verbose=1,

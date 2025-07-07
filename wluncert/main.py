@@ -12,7 +12,7 @@ from analysis import Analysis
 import matplotlib
 
 from deepperf import DeepPerfModel
-from wluncert.dal import DaLRegressor
+from dal import DaLRegressor
 
 # must be run before any JAX imports
 numpyro.set_host_device_count(50)
@@ -173,8 +173,8 @@ def main():
         chosen_model_lbls.extend(["cpooling-rf"])
         chosen_model_lbls.extend(["no-pooling-rf"])
 
-        chosen_model_lbls.extend(["model_dal_cpooling"])
-        chosen_model_lbls.extend(["model_dal_no_pooling"])
+        # chosen_model_lbls.extend(["model_dal_cpooling"])
+        # chosen_model_lbls.extend(["model_dal_no_pooling"])
 
         # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
 
@@ -224,7 +224,7 @@ def main():
             # 0.125,
             # 0.25,
             0.5,
-            # 0.75,
+            0.75,
             # # 0.9,
             1.0,
             # # 1.1,
@@ -241,7 +241,7 @@ def main():
 
         selected_data = (
             # "jump3r",
-            "H2",
+            # "H2",
             # "xz",  # bad results
             # "x264",  # bad results
             # "batik",
@@ -252,7 +252,7 @@ def main():
             # "artificial",
             # "VP9",
             # "x265",
-            # "tuxkconfig",
+            "tuxkconfig",
             # "nfp-apache",
             # "nfp-7z",
             # "nfp-brotli",
@@ -305,14 +305,17 @@ def main():
 
         # chosen_model_lbls.extend(["no-pooling-lin"])
         # chosen_model_lbls.extend(["cpooling-lin"])
-        chosen_model_lbls.extend(["cpooling-rf"])
-        chosen_model_lbls.extend(["no-pooling-rf"])
+
         # # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage-pw"])
 
         # FINALS
-        chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
-        chosen_model_lbls.extend(["cpooling-mcmc-1model"])
-        chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
+        # chosen_model_lbls.extend(["no-pooling-mcmc-1model"])
+        # chosen_model_lbls.extend(["cpooling-mcmc-1model"])
+        # chosen_model_lbls.extend(["partial-pooling-mcmc-robust-adaptive-shrinkage"])
+        # chosen_model_lbls.extend(["cpooling-rf"])
+        # chosen_model_lbls.extend(["no-pooling-rf"])
+        chosen_model_lbls.extend(["model_dal_cpooling"])
+        chosen_model_lbls.extend(["model_dal_no_pooling"])
 
         # # # LAST UNCOMMENTED!!!!
         # chosen_model_lbls.extend(["model_lasso_reg_cpool"])
@@ -320,8 +323,8 @@ def main():
         # chosen_model_lbls.extend(["no-pooling-dummy"])
         # chosen_model_lbls.extend(["cpooling-dummy"])
         #
-        chosen_model_lbls.extend(["model_lassocv_reg_no_pool"])
-        chosen_model_lbls.extend(["model_lassocv_reg_cpool"])
+        # chosen_model_lbls.extend(["model_lassocv_reg_no_pool"])
+        # chosen_model_lbls.extend(["model_lassocv_reg_cpool"])
         # # # LAST UNCOMMENTED END!!!!
 
         # chosen_model_lbls.extend(["mcmc-selfstd-const-hyper"])
