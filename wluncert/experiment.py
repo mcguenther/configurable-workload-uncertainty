@@ -482,8 +482,8 @@ class Replication:
             # for task in tqdm(tasks[task_type]):
             #     self.handle_task(task)
 
-            # Use joblib for task execution
-            Parallel(n_jobs=self.n_jobs, verbose=10)(
+            # Use joblib for task execution with threads
+            Parallel(n_jobs=self.n_jobs, prefer="threads", verbose=10)(
                 delayed(self.handle_task)(task) for task in tqdm(tasks[task_type])
             )
 
