@@ -456,10 +456,9 @@ class Replication:
         ]
         print(f"Starting to provision {len(args_list)} experiments", flush=True)
 
-        # Use joblib for parallelization
-
-        # with parallel_backend("multiprocessing", n_jobs=-4):
-        with parallel_backend("multiprocessing", n_jobs=self.n_jobs):
+        # Use joblib for parallelization with threads to avoid
+        # expensive data serialization of large datasets
+        with parallel_backend("threading", n_jobs=self.n_jobs):
             results = Parallel(
                 # n_jobs=-4,
                 verbose=1,
@@ -482,8 +481,8 @@ class Replication:
             # for task in tqdm(tasks[task_type]):
             #     self.handle_task(task)
 
-            # Use joblib for task execution
-            Parallel(n_jobs=self.n_jobs, verbose=10)(
+            # Use joblib for task execution with threads
+            Parallel(n_jobs=self.n_jobs, prefer="threads", verbose=10)(
                 delayed(self.handle_task)(task) for task in tqdm(tasks[task_type])
             )
 

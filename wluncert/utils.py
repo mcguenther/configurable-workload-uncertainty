@@ -36,9 +36,56 @@ def factorize_if_not_int(df: pd.DataFrame) -> np.ndarray:
 def remove_multicollinearity_limited(
     df: pd.DataFrame, sample_rows: int = 100, max_clique_size: int = 5
 ) -> pd.DataFrame:
-    print(
-        "Simply returning the same df because algorithm for clique detection does not scale."
-    )
+    """Fast multicollinearity removal for very wide data frames.
+
+    This heuristic drops one column per group of mutually exclusive features.
+    It avoids the expensive clique detection used in the full implementation.
+    """
+
+    print("⚡ Fast multicollinearity removal...", flush=True)
+
+    # Drop constant/index columns first
+    nunique = df.nunique()
+    drop_cols = list(nunique[nunique == 1].index)
+    if "Unnamed: 0" in df.columns:
+        drop_cols.append("Unnamed: 0")
+    df = df.drop(columns=drop_cols, errors="ignore")
+    if df.empty:
+        return df
+
+    df_sampled = _sample_df(df, max_rows=sample_rows)
+    arr = factorize_if_not_int(df_sampled)
+
+    n_features = arr.shape[1]
+    parent = list(range(n_features))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x, y):
+        rx, ry = find(x), find(y)
+        if rx != ry:
+            parent[ry] = rx
+
+    # Detect pairs of mutually exclusive features and union them
+    for i in range(n_features):
+        col_i = arr[:, i]
+        for j in range(i + 1, n_features):
+            col_j = arr[:, j]
+            if np.all(col_i + col_j <= 1):
+                union(i, j)
+
+    comps = {}
+    features = list(df.columns)
+    for idx in range(n_features):
+        root = find(idx)
+        comps.setdefault(root, []).append(idx)
+
+    cols_to_drop = [features[min(idxs)] for idxs in comps.values() if len(idxs) > 1]
+    df = df.drop(columns=cols_to_drop, errors="ignore")
     return df
 
 

@@ -26,7 +26,9 @@ def has_multiple_columns(data):
 
 class SingleEnvData:
     def __init__(self, df: pd.DataFrame, environment_col_name, nfps):
-        self.df = copy.deepcopy(df)
+        # Store reference without deep copying to avoid unnecessary memory usage
+        # for large datasets
+        self.df = df
         self.env_id = int(list(self.df[environment_col_name].unique())[0])
         self.env_col_name = environment_col_name
         self.nfps = list(nfps)
@@ -332,12 +334,11 @@ class DataLoaderStandard:
             sys_df = pd.read_csv(self.base_path, sep=self.sep)
             print(f"csv loaded shape={sys_df.shape}", flush=True)
         df_no_multicollinearity = remove_multicollinearity(sys_df)
-        cleared_sys_df = copy.deepcopy(df_no_multicollinearity)
         print(
-            f"data after removing multicollinearity shape={cleared_sys_df.shape}",
+            f"data after removing multicollinearity shape={df_no_multicollinearity.shape}",
             flush=True,
         )
-        return cleared_sys_df
+        return df_no_multicollinearity
 
     def get_df(self):
         df = self.get_standard_CSV()
@@ -365,7 +366,7 @@ class DataLoaderDashboardData:
         self.nfps = [c for c in measurement_df.columns if c not in col_names_to_exclude]
 
         df_no_multicollinearity = remove_multicollinearity(joined_df)
-        self.cleared_sys_df = copy.deepcopy(df_no_multicollinearity)
+        self.cleared_sys_df = df_no_multicollinearity
         return self.cleared_sys_df
 
     def get_standard_CSV(self):
