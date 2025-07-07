@@ -34,7 +34,7 @@ if gpus:
 
 
 class DeepPerfModel(BaseEstimator):
-    def __init__(self, random_seed=0, verbose=False, n_jobs=-1, batch_size=32):
+    def __init__(self, random_seed=0, verbose=False, n_jobs=-1, batch_size=128):
         self.n_layers = None
         self.learning_rate = None
         self.regularization_parameter = None
@@ -269,6 +269,9 @@ class DeepPerfModel(BaseEstimator):
             optimizer=tf.keras.optimizers.Adam(learning_rate=self.learning_rate),
             loss="mse",
         )
+
+
+
         X = X.values
         X_train = X.reshape((X.shape[0], -1))
         y = np.array(y)
@@ -289,7 +292,10 @@ class DeepPerfModel(BaseEstimator):
         X = X.values
         X_pred = X.reshape((X.shape[0], -1))
 
-        predictions = self.model.predict(X_pred, verbose=self.verbose).ravel()
+        #predictions = self.model.predict(X_pred, verbose=self.verbose).ravel()
+        dataset = tf.data.Dataset.from_tensor_slices(X_pred).batch(self.batch_size)
+        predictions = self.model.predict(dataset, verbose=self.verbose).ravel()
+
         if self.verbose:
             print("Predictions completed.")
         return predictions
