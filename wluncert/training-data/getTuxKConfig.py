@@ -1,3 +1,14 @@
+import sys
+
+print(
+    sys.version
+)  # Full version string (e.g., '3.11.4 (main, Jun  7 2023, 12:33:22) [Clang 14.0.0]')
+
+print(
+    sys.version_info
+)  # Version tuple (e.g., sys.version_info(major=3, minor=11, micro=4, releaselevel='final', serial=0))
+
+
 import openml
 import pandas as pd
 import os

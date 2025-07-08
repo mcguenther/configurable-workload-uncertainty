@@ -41,6 +41,9 @@ boto3                          # AWS access
 black==23.7.0                  # Code formatting (stable version)
 #typing-extensions==4.10.0      # For compatibility with older typing APIs
 typing-extensions==4.5.0
+#typing-extensions<4.6.0
+openml~=0.9.0
+
 
 # Special dependency from GitHub (locked commit)
 pycosa @ git+https://github.com/smba/pycosa-toolbox@6a3632c448003347c203187dc94a15819ed46875#egg=pycosa
