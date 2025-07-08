@@ -99,6 +99,9 @@ class DeepPerfModel(BaseEstimator):
                 f"Creating model with {n_layers} layers and regularization parameter {regularization_parameter}"
             )
 
+        # Ensure any previously built models are cleared to free memory
+        tf.keras.backend.clear_session()
+
         model = tf.keras.models.Sequential(
             [
                 tf.keras.layers.Dense(
@@ -154,6 +157,9 @@ class DeepPerfModel(BaseEstimator):
             verbose=self.verbose,
         ).ravel()
         error = self._get_error(y_pred, y_val)
+        # Free resources associated with this model
+        tf.keras.backend.clear_session()
+        del model
         return (params, error)
 
     # def _parallel_search(self, param_grid, X_train, y_train, X_val, y_val):
@@ -260,6 +266,10 @@ class DeepPerfModel(BaseEstimator):
             print("Starting model fitting process...")
             physical_devices = tf.config.list_physical_devices("GPU")
             print("Using GPUS:", physical_devices)
+
+        # Clear any previous models to avoid memory accumulation
+        tf.keras.backend.clear_session()
+
         # X = tf.cast(X, dtype=tf.float32)
         # y = tf.cast(y, dtype=tf.float32)
         self._find_hyperparameters(X, y)
@@ -328,6 +338,10 @@ class DeepPerfModel(BaseEstimator):
             tf.config.threading.set_intra_op_parallelism_threads(self.n_jobs)
             tf.config.threading.set_inter_op_parallelism_threads(self.n_jobs)
         return self
+
+    def __del__(self):
+        """Ensure TensorFlow resources are released when the instance is deleted."""
+        tf.keras.backend.clear_session()
 
 
 # Usage example:
