@@ -353,7 +353,7 @@ def draw_multitask_paper_plot(
     cat_col="params.pooling_cat",
 ):
     # st.dataframe(combined_df)
-    st.write("Filter models ...")
+    st.write("🔍 Filtering models for the large comparison preset ...")
     wanted_models = {
         "mcmc": "Bayesian",
         # "mean-pred": "Mean",
@@ -375,7 +375,7 @@ def draw_multitask_paper_plot(
         # "test_set_log-likelihood":"ell",
     }
     # filtered_df = filtered_df[filtered_df[cat_col].isin(s_poolings)]
-    st.write("Filter metrics ...")
+    st.write("📏 Filtering metrics to focus on error values ...")
     metrics_raw = get_metrics_in_df(filtered_df)
     melted_df = filtered_df.melt(
         id_vars=[col for col in filtered_df.columns if col not in metrics_raw],
@@ -847,7 +847,7 @@ def draw_multitask_RF_comparison(
     cat_col="params.pooling_cat",
 ):
     # st.dataframe(combined_df)
-    st.write("Filter models ...")
+    st.write("\xf0\x9f\x94\x8d Filtering models for the large comparison preset ...")
     wanted_models = {
         "mcmc": "Bayesian",
         # "mean-pred": "Mean",
@@ -867,7 +867,7 @@ def draw_multitask_RF_comparison(
         # "test_set_log-likelihood":"ell",
     }
     # filtered_df = filtered_df[filtered_df[cat_col].isin(s_poolings)]
-    st.write("Filter metrics ...")
+    st.write("📏 Filtering metrics to focus on error values ...")
     metrics_raw = get_metrics_in_df(filtered_df)
     melted_df = filtered_df.melt(
         id_vars=[col for col in filtered_df.columns if col not in metrics_raw],
@@ -1298,9 +1298,208 @@ def draw_multitask_RF_comparison(
             with st.expander(label=pdf_label, expanded=False):
                 embed_pdf(tmp_file)
 
+
+def draw_multitask_large_comparison(
+    combined_df,
+    system_col="params.software-system",
+    model_col="params.model",
+    cat_col="params.pooling_cat",
+):
+    st.write("🔍 Filtering models for the large comparison preset ...")
+    wanted_models = {
+        "mcmc": "Bayesian",
+        "mcmc-adaptive-shrinkage": "Bayesian",
+        "model_dal_cpooling": "DaL",
+        "model_dal_no_pooling": "DaL",
+        "model_deeperf_cpooling": "DeepPerf",
+        "model_deeperf_no_pooling": "DeepPerf",
+        "rf": "RF",
+    }
+    filtered_df = combined_df[combined_df[model_col].isin(wanted_models)]
+    filtered_df["params.model"] = filtered_df["params.model"].map(wanted_models)
+
+    col_mapper = {
+        "mape": "MAPE",
+        "mape_ci": "MAPEci",
+        "pmape_ci": "pMAPE",
+    }
+    st.write("📏 Filtering metrics to focus on error values ...")
+    metrics_raw = get_metrics_in_df(filtered_df)
+    melted_df = filtered_df.melt(
+        id_vars=[col for col in filtered_df.columns if col not in metrics_raw],
+        value_vars=metrics_raw,
+        var_name="Metric",
+        value_name="Value",
+    )
+    melted_df["Metric"] = melted_df["Metric"].str.replace("metrics.", "")
+    melted_df = melted_df.loc[melted_df["Metric"].isin(col_mapper)]
+    melted_df["Metric"] = melted_df["Metric"].replace(col_mapper)
+
+    pooling_cat_lbl = "Pooling"
+    relative_train_size_lbl = "Relative Train Size"
+    model_lbl = "Model"
+    subject_system_lbl = "Subject System"
+    params_mapper = {
+        "params.model": model_lbl,
+        "params.software-system": subject_system_lbl,
+        "params.relative_train_size": relative_train_size_lbl,
+        "params.pooling_cat": pooling_cat_lbl,
+    }
+    melted_df = melted_df.rename(columns=params_mapper)
+
+    bnp = "$\\tilde{\Pi}^\\text{np}$"
+    bpp = "$\\tilde{\\Pi}^\\text{pp}$"
+    bcp = "$\\tilde{\\Pi}^\\text{cp}$"
+    melted_df[model_lbl].loc[
+        (melted_df[model_lbl] == "Bayesian") & (melted_df[pooling_cat_lbl] == "no")
+    ] = bnp
+    melted_df[model_lbl].loc[
+        (melted_df[model_lbl] == "Bayesian") & (melted_df[pooling_cat_lbl] == "partial")
+    ] = bpp
+    melted_df[model_lbl].loc[
+        (melted_df[model_lbl] == "Bayesian") & (melted_df[pooling_cat_lbl] == "complete")
+    ] = bcp
+
+    melted_df = melted_df.loc[
+        ~melted_df[subject_system_lbl].isin(["artificial", "kanzi"])
+    ]
+    plot_df = copy.deepcopy(melted_df)
+    melted_df = melted_df.drop(columns=["Pooling"])
+    melted_df[subject_system_lbl] = melted_df[subject_system_lbl].apply(
+        lambda x: f"\\sws{{{x}}}"
+    )
+
+    melted_df["Value"] = melted_df["Value"].astype(float)
+    replacements = {
+        "0.125000": "$\\sfrac{1}{8} \\vert \\mathcal{O} \\vert$",
+        "0.250000": "$\\sfrac{1}{4} \\vert \\mathcal{O} \\vert$",
+        "0.500000": "$\\sfrac{1}{2} \\vert \\mathcal{O} \\vert$",
+        "0.750000": "$\\sfrac{3}{4} \\vert \\mathcal{O} \\vert$",
+        "1.000000": "$1 \\vert \\mathcal{O} \\vert$",
+        "2.000000": "$2 \\vert \\mathcal{O} \\vert$",
+        "3.000000": "$3 \\vert \\mathcal{O} \\vert$",
+        r"Subject System": "",
+        r"Relative Train Size": "$\\vert \\mathcal{D}^\text{train} \\vert$",
+        r"\\\\ \& \& \& \& \& \& \& \& \& \& \& \& ": "",
+        r" &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  &  \\": "",
+    }
+    mape_df = melted_df[
+        ["Subject System", "Relative Train Size", "Model", "Metric", "Value"]
+    ]
+
+    with st.expander("RQ 1 MAPE data", expanded=False):
+        st.write("📊 RQ1 data including 30 repetitions.")
+
+    st.dataframe(mape_df)
+
+    with st.spinner("Waiting for plot to be rendered"):
+        with sns.plotting_context("talk"):
+            color_rf = "#BF8739"
+            color_dal = "#BF393A"
+            color_deepperf = "#6A3BBF"
+            model_colors = {
+                bnp: bayes_palette[0],
+                bpp: bayes_palette[1],
+                bcp: bayes_palette[2],
+                "DaL": color_dal,
+                "DeepPerf": color_deepperf,
+                "RF": color_rf,
+            }
+
+            model_order = list(model_colors)
+            plot_df_filtered = plot_df.loc[
+                plot_df["Metric"].isin([col_mapper["pmape_ci"]])
+            ]
+
+            plot_df_filtered_sws = plot_df_filtered.loc[
+                plot_df_filtered["Subject System"].isin(["H2", "x264"])
+            ]
+            rel_train_size_lbl_short = "Rel. Train Size"
+            plot_df_filtered_sws.columns = [
+                c.replace(relative_train_size_lbl, rel_train_size_lbl_short)
+                for c in plot_df_filtered_sws.columns
+            ]
+            complete_pooling_lbl_shor = "compl."
+            plot_df_filtered_sws = plot_df_filtered_sws.replace(
+                "complete", complete_pooling_lbl_shor
+            )
+            plot = sns.relplot(
+                data=plot_df_filtered_sws,
+                x=rel_train_size_lbl_short,
+                y="Value",
+                kind="line",
+                hue="Model",
+                style="Pooling",
+                style_order=[complete_pooling_lbl_shor, "partial", "no"],
+                facet_kws={"sharey": False, "sharex": True},
+                hue_order=model_order,
+                palette=model_colors,
+                aspect=0.4,
+                height=2.25,
+                col="Subject System",
+                col_wrap=1,
+                legend=True,
+            )
+
+            for ax in plt.gcf().axes:
+                title = ax.get_title()
+                _, y_max = ax.get_ylim()
+                if "x264" in title:
+                    upper_pMAPE = 120
+                else:
+                    upper_pMAPE = 400
+                y_max = min(upper_pMAPE, y_max)
+                ax.set_ylim(0, y_max)
+                ax.set_xticks([0, 1, 2, 3])
+                title = ax.get_title()
+                new_title = title.replace("Subject System = ", "")
+                ax.set_title(new_title)
+                ax.set_ylabel("")
+            fig = plt.gcf()
+
+            handles, labels = plot.axes[0].get_legend_handles_labels()
+            model_padded_handles = [*handles[5:]]
+            model_padded_labels = [*labels[5:]]
+            pooling_padded_handles = [*handles[:5]]
+            pooling_padded_labels = [*labels[:5]]
+
+            pooling_padded_labels[0] = "Model"
+
+            legend_kw_args = {
+                "frameon": False,
+                "prop": {"weight": "normal"},
+            }
+
+            plot._legend.remove()
+            legend_position = (0.92, 0.475)
+            pooling_legend = fig.legend(
+                pooling_padded_handles,
+                pooling_padded_labels,
+                loc="lower left",
+                ncol=1,
+                bbox_to_anchor=(legend_position[0], legend_position[1]),
+                **legend_kw_args,
+            )
+            model_legend = fig.legend(
+                model_padded_handles,
+                model_padded_labels,
+                loc="upper left",
+                ncol=1,
+                bbox_to_anchor=legend_position,
+                **legend_kw_args,
+            )
+
+            plt.tight_layout()
+            tmp_file = "streamlit-last-results-multitask.pdf"
+            plt.savefig(tmp_file, bbox_inches="tight")
+            fig.savefig("temp_plot.png", bbox_inches="tight", dpi=300)
+            st.image("temp_plot.png")
+
+            with st.expander(label=pdf_label, expanded=False):
+                embed_pdf(tmp_file)
             time.sleep(0.2)
 
-            st.write("## Plot with legend right")
+            st.write("## Plot with legend right 📈")
             plot = sns.relplot(
                 data=plot_df_filtered,
                 x=relative_train_size_lbl,
@@ -1397,11 +1596,11 @@ def draw_multitask_RF_comparison(
 
 
 def draw_multitask_dashboard(combined_df):
-    st.write("## Plot configuration")
+    st.write("## Plot configuration ⚙️")
 
     plot_type = st.selectbox(
         "Do you want to get the paper plots more extensive plots?",
-        ["Paper", "Random Forest Paper", "Custom"],
+        ["Paper", "Random Forest Paper", "Large Comparison Paper", "Custom"],
     )
 
     if plot_type == "Paper":
@@ -1409,6 +1608,10 @@ def draw_multitask_dashboard(combined_df):
 
     elif plot_type == "Random Forest Paper":
         draw_multitask_RF_comparison(combined_df)
+
+    elif plot_type == "Large Comparison Paper":
+        st.info("📊 Large Comparison preset selected")
+        draw_multitask_large_comparison(combined_df)
     else:
 
         filtered_df, score_columns, systems, y_lim_max_mape = filter_result_df(
