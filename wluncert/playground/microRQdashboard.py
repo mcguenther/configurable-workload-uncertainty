@@ -1348,7 +1348,7 @@ def draw_multitask_large_comparison(
     melted_df = melted_df.rename(columns=params_mapper)
 
     bnp = "$\\tilde{\Pi}^\\text{np}$"
-    bpp = "$\\tilde{\\Pi}^\\text{pp}$"
+    bpp = "$\\tilde{\\Pi}^\\text{pp} (HyPerf)$"
     bcp = "$\\tilde{\\Pi}^\\text{cp}$"
     melted_df[model_lbl].loc[
         (melted_df[model_lbl] == "Bayesian") & (melted_df[pooling_cat_lbl] == "no")
@@ -1357,7 +1357,8 @@ def draw_multitask_large_comparison(
         (melted_df[model_lbl] == "Bayesian") & (melted_df[pooling_cat_lbl] == "partial")
     ] = bpp
     melted_df[model_lbl].loc[
-        (melted_df[model_lbl] == "Bayesian") & (melted_df[pooling_cat_lbl] == "complete")
+        (melted_df[model_lbl] == "Bayesian")
+        & (melted_df[pooling_cat_lbl] == "complete")
     ] = bcp
 
     melted_df = melted_df.loc[
@@ -1500,6 +1501,36 @@ def draw_multitask_large_comparison(
             time.sleep(0.2)
 
             st.write("## Plot with legend right 📈")
+
+            DEFAULT_SYSTEM_Y_LIMITS = {
+                "dconvert": 17,
+                "batik": 50,
+                "h2": 20,
+                "jump3r": 80,
+                "xz": 120,
+                "x264": 120,
+                "lrzip": 230,
+                "z3": 950,
+                # "VP9": 200,
+            }
+            # Prepare y-axis limit configuration
+            systems_available = sorted(plot_df_filtered["Subject System"].unique())
+            with st.expander("Y-axis limits", expanded=False):
+                apply_base_limits = st.checkbox(
+                    "Apply baseline system limits", value=True, key="base_y_lim"
+                )
+                apply_custom_limits = st.checkbox(
+                    "Override with custom per-system limits",
+                    value=False,
+                    key="custom_y_lim",
+                )
+                custom_limits = {}
+                for sys in systems_available:
+                    default_val = DEFAULT_SYSTEM_Y_LIMITS.get(sys.lower())
+                    custom_limits[sys.lower()] = st.number_input(
+                        f"{sys} max", value=float(default_val) if default_val else 0.0
+                    )
+
             plot = sns.relplot(
                 data=plot_df_filtered,
                 x=relative_train_size_lbl,
@@ -1523,12 +1554,29 @@ def draw_multitask_large_comparison(
             for ax in plt.gcf().axes:
                 title = ax.get_title()
                 _, y_max = ax.get_ylim()
-                if "x264" in title:
-                    upper_pMAPE = 120
-                else:
-                    upper_pMAPE = 400
-                y_max = min(upper_pMAPE, y_max)
-                ax.set_ylim(0, y_max)
+                system_name = title.replace("Subject System = ", "").strip()
+                system_key = system_name.lower()
+                final_limit = y_max
+                if apply_base_limits:
+                    if system_key in DEFAULT_SYSTEM_Y_LIMITS:
+                        final_limit = DEFAULT_SYSTEM_Y_LIMITS[system_key]
+                if apply_custom_limits:
+                    user_limit = custom_limits.get(system_key)
+                    if user_limit and user_limit > 0:
+                        if final_limit == y_max:
+                            final_limit = user_limit
+                        else:
+                            final_limit = min(final_limit, user_limit)
+
+                if y_max > final_limit:
+                    ax.set_ylim(0, final_limit)
+
+                # if "x264" in title:
+                #     upper_pMAPE = 120
+                # else:
+                #     upper_pMAPE = 400
+                # y_max = min(upper_pMAPE, y_max)
+                # ax.set_ylim(0, y_max)
                 # ax.set_xticks([0.5,1,3])
                 ax.set_xticks([0, 1, 2, 3])
                 title = ax.get_title()
