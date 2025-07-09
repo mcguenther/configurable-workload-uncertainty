@@ -1346,6 +1346,11 @@ def draw_multitask_large_comparison(
         "params.pooling_cat": pooling_cat_lbl,
     }
     melted_df = melted_df.rename(columns=params_mapper)
+    # Only keep the partial pooling variant for Bayesian models in the large comparison plot
+    is_bayesian = melted_df[model_lbl] == "Bayesian"
+    unwanted_pooling = ["complete", "no"]
+    melted_df = melted_df.loc[~(is_bayesian & melted_df[pooling_cat_lbl].isin(unwanted_pooling))]
+
 
     bnp = "$\\tilde{\Pi}^\\text{np}$"
     bpp = "$\\tilde{\\Pi}^\\text{pp} (HyPerf)$"
@@ -1399,9 +1404,7 @@ def draw_multitask_large_comparison(
             color_dal = "#BF393A"
             color_deepperf = "#6A3BBF"
             model_colors = {
-                bnp: bayes_palette[0],
                 bpp: bayes_palette[1],
-                bcp: bayes_palette[2],
                 "DaL": color_dal,
                 "DeepPerf": color_deepperf,
                 "RF": color_rf,
