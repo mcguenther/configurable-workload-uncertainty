@@ -5,7 +5,7 @@ seaborn==0.13.1                # Matches matplotlib 3.7.x well
 graphviz
 networkx                       # Listed twice before, only keep once
 bokeh
-arviz                          # For probabilistic visualization (NumPyro-compatible)
+arviz~=0.15.1                  # For probabilistic visualization (NumPyro-compatible)
 pyarrow
 openpyxl==3.1.2                # For Excel export (used by pandas)
 
