@@ -1685,10 +1685,10 @@ def draw_multitask_large_comparison(
 
             handles, labels = plot.axes[0].get_legend_handles_labels()
             # st.write(labels)
-            model_padded_handles = [*handles[6:]]
-            model_padded_labels = [*labels[6:]]
-            pooling_padded_handles = [*handles[:6]]
-            pooling_padded_labels = [*labels[:6]]
+            model_padded_handles = [*handles[5:]]
+            model_padded_labels = [*labels[5:]]
+            pooling_padded_handles = [*handles[:5]]
+            pooling_padded_labels = [*labels[:5]]
 
             # padded_handles = [*handles[6:], None, None, None, *handles[:6]]
             # padded_labels =[*labels[6:], None ," ", None, *labels[:6]]
@@ -1733,14 +1733,14 @@ def draw_multitask_large_comparison(
             fig.savefig("temp_plot.png", bbox_inches="tight", dpi=300)
             st.image("temp_plot.png")
 
-            with st.expander(label=pdf_label, expanded=False):
-                with open(tmp_file, "rb") as pdf_file:
-                    st.download_button(
-                        label="Download PDF",
-                        data=pdf_file.read(),
-                        file_name=os.path.basename(tmp_file),
-                        mime="application/pdf",
-                    )
+            # with st.expander(label=pdf_label, expanded=False):
+            with open(tmp_file, "rb") as pdf_file:
+                st.download_button(
+                    label="Download PDF",
+                    data=pdf_file.read(),
+                    file_name=os.path.basename(tmp_file),
+                    mime="application/pdf",
+                )
 
 
 def draw_multitask_dashboard(combined_df):
