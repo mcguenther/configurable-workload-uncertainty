@@ -26,13 +26,9 @@ from joblib import (
 )
 from tqdm import tqdm
 
-# MLFLOW_URI = "http://172.26.92.43:5000"
-MLFLOW_USR = "jdorn"
-MLFLOW_PWD = "xWpS3yWZKxDXEqFWBVh5SAz84d9uyEWuFEUs"
-MLFLOW_URI = f"https://{MLFLOW_USR}:{MLFLOW_PWD}@mlflow.server.jdbrothers.de"
-# jdorn:xWpS3yWZKxDXEqFWBVh5SAz84d9uyEWuFEUs@mlflow.server.jdbrothers.de
-# MLFLOW_URI = "https://mlflow.sws.informatik.uni-leipzig.de"
-# EXPERIMENT_NAME = "jdorn-multilevel"
+MLFLOW_USR = "none"
+MLFLOW_PWD = "none"
+MLFLOW_URI = f"https://none.none"
 EXPERIMENT_NAME = "jdorn-artif"
 
 
