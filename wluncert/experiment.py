@@ -5,6 +5,7 @@ import random
 import time
 import uuid
 from typing import List, Dict
+import gc
 
 import localflow as mlflow
 import numpy as np
@@ -376,6 +377,12 @@ class Replication:
         self.parent_run_id = None
         self.experiment_name = f"uncertainty-learning-{self.replication_lbl}"
 
+    def release_resources(self):
+        """Release large objects to free memory."""
+        self.data_providers = {}
+        self.models = {}
+        gc.collect()
+
     def _uses_tux_data(self) -> bool:
         """Return True if any selected dataset is the TuxKconfig dataset."""
         return any("tuxkconfig" in lbl for lbl in self.data_providers)
@@ -459,9 +466,7 @@ class Replication:
         # Use joblib for parallelization unless the large tux dataset is used
         if self._uses_tux_data():
             # Avoid spawning many processes to reduce temporary disk usage
-            results = [
-                self.provision_experiment(args) for args in tqdm(args_list)
-            ]
+            results = [self.provision_experiment(args) for args in tqdm(args_list)]
         else:
             with parallel_backend("multiprocessing", n_jobs=-4):
                 results = Parallel(verbose=1)(
@@ -472,6 +477,7 @@ class Replication:
         for task_list in results:
             for task in task_list:
                 tasks[type(task)].append(task)
+        del results
 
         print("Provisioned experiments", flush=True)
 
@@ -496,6 +502,8 @@ class Replication:
             )
 
         print(self.parent_run_id)
+        tasks.clear()
+        gc.collect()
         return self.parent_run_id
 
     def handle_task(self, task: ExperimentTask):
@@ -511,3 +519,4 @@ class Replication:
         print(f"finished task {run_name}", flush=True)
         del task.model
         del task
+        gc.collect()
