@@ -34,7 +34,10 @@ def factorize_if_not_int(df: pd.DataFrame) -> np.ndarray:
 
 
 def remove_multicollinearity_limited(
-    df: pd.DataFrame, sample_rows: int = 100, max_clique_size: int = 5
+    df: pd.DataFrame,
+    sample_rows: int = 100,
+    max_clique_size: int = 5,
+    skip_entirely=True,
 ) -> pd.DataFrame:
     """Fast multicollinearity removal for very wide data frames.
 
@@ -51,6 +54,8 @@ def remove_multicollinearity_limited(
         drop_cols.append("Unnamed: 0")
     df = df.drop(columns=drop_cols, errors="ignore")
     if df.empty:
+        return df
+    if skip_entirely:
         return df
 
     df_sampled = _sample_df(df, max_rows=sample_rows)
