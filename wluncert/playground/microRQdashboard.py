@@ -1461,7 +1461,13 @@ def draw_multitask_large_comparison(
                 legend=True,
             )
             for ax in plt.gcf().axes:
-                ax.set_ylabel("Time (s)")
+                ax.set_ylabel("")
+                ax.set_yscale("log")
+                ax.set_xticks([0, 1, 2, 3])
+                title = ax.get_title()
+                new_title = title.replace("Subject System = ", "")
+                ax.set_title(new_title)
+                ax.set_xlabel("Rel. Train Size")
             st.pyplot(time_plot.fig)
             plot_df_filtered = plot_df.loc[
                 plot_df["Metric"].isin([col_mapper["pmape_ci"]])
