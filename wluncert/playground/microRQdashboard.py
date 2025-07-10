@@ -1346,6 +1346,38 @@ def draw_multitask_large_comparison(
         "params.pooling_cat": pooling_cat_lbl,
     }
     melted_df = melted_df.rename(columns=params_mapper)
+
+    df_for_time = filtered_df.rename(columns=params_mapper)
+    time_df = df_for_time[
+        [
+            subject_system_lbl,
+            relative_train_size_lbl,
+            model_lbl,
+            pooling_cat_lbl,
+            "metrics.fitting_time_cost",
+        ]
+    ]
+
+    unwanted_pooling = ["complete", "no"]
+    time_df = time_df.loc[
+        ~(
+            (time_df[model_lbl] == "Bayesian")
+            & time_df[pooling_cat_lbl].isin(unwanted_pooling)
+        )
+    ]
+    time_df = time_df.loc[~time_df[subject_system_lbl].isin(["artificial", "kanzi"])]
+    time_df = time_df.drop(columns=[pooling_cat_lbl])
+    time_df = time_df.rename(columns={"metrics.fitting_time_cost": "Fitting Time"})
+
+    fit_table = time_df.pivot_table(
+        index=[subject_system_lbl, relative_train_size_lbl],
+        columns=model_lbl,
+        values="Fitting Time",
+        aggfunc="mean",
+    )
+    st.subheader("Fitting Time Comparison (s)")
+    st.dataframe(fit_table)
+
     # Only keep the partial pooling variant for Bayesian models in the large comparison plot
     is_bayesian = melted_df[model_lbl] == "Bayesian"
     unwanted_pooling = ["complete", "no"]
@@ -1412,6 +1444,25 @@ def draw_multitask_large_comparison(
             }
 
             model_order = list(model_colors)
+            st.write("### Fitting Time by Training Size")
+            time_plot = sns.relplot(
+                data=time_df,
+                x=relative_train_size_lbl,
+                y="Fitting Time",
+                kind="line",
+                hue=model_lbl,
+                facet_kws={"sharey": False, "sharex": True},
+                hue_order=model_order,
+                palette=model_colors,
+                aspect=1.2,
+                height=2.5,
+                col=subject_system_lbl,
+                col_wrap=5,
+                legend=True,
+            )
+            for ax in plt.gcf().axes:
+                ax.set_ylabel("Time (s)")
+            st.pyplot(time_plot.fig)
             plot_df_filtered = plot_df.loc[
                 plot_df["Metric"].isin([col_mapper["pmape_ci"]])
             ]
