@@ -379,6 +379,8 @@ def main():
     eval = mlfloweval.Evaluation(run_id, MLFLOW_URI, EXPERIMENT_NAME)
     eval.run()
 
+    rep.release_resources()
+
     # eval.plot_errors()
 
 
