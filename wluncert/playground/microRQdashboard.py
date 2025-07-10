@@ -1331,6 +1331,7 @@ def draw_multitask_large_comparison(
     model_col="params.model",
     cat_col="params.pooling_cat",
 ):
+    pdf_file_name = "large-models-comparison.pdf"
     st.write("🔍 Filtering models for the large comparison preset ...")
     wanted_models = {
         "mcmc": "Bayesian",
@@ -1584,7 +1585,7 @@ def draw_multitask_large_comparison(
             )
 
             plt.tight_layout()
-            tmp_file = "streamlit-last-results-multitask.pdf"
+            tmp_file = pdf_file_name
             plt.savefig(tmp_file, bbox_inches="tight")
             fig.savefig("temp_plot.png", bbox_inches="tight", dpi=300)
             st.image("temp_plot.png")
@@ -1727,7 +1728,7 @@ def draw_multitask_large_comparison(
 
             fig.add_artist(model_legend)
 
-            tmp_file = "streamlit-last-results-multitask.pdf"
+            tmp_file = pdf_file_name
             plt.savefig(tmp_file, bbox_inches="tight")
             fig.savefig("temp_plot.png", bbox_inches="tight", dpi=300)
             st.image("temp_plot.png")
@@ -1971,7 +1972,7 @@ def plot_multitask(
         fig = plt.gcf()
         # fig.canvas.draw()
         time.sleep(0.1)
-        tmp_file = "streamlit-last-results-multitask.pdf"
+        tmp_file = pdf_file_name
         plt.savefig(tmp_file, bbox_inches="tight")
         fig.savefig("temp_plot.png", bbox_inches="tight", dpi=300)
         st.image("temp_plot.png")
