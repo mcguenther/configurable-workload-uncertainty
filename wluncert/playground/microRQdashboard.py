@@ -1384,6 +1384,11 @@ def draw_multitask_large_comparison(
         ]
     ]
 
+    # Display only the partial pooling variant for Bayesian models. To
+    # ensure consistent labelling between the table and the plot we map the
+    # remaining Bayesian rows to the HyPerf label before dropping the pooling
+    # category column.
+    bpp = "HyPerf ($\\tilde{\\Pi}^\\text{pp}$)"
     unwanted_pooling = ["complete", "no"]
     time_df = time_df.loc[
         ~(
@@ -1391,6 +1396,7 @@ def draw_multitask_large_comparison(
             & time_df[pooling_cat_lbl].isin(unwanted_pooling)
         )
     ]
+    time_df.loc[time_df[model_lbl] == "Bayesian", model_lbl] = bpp
     time_df = time_df.loc[~time_df[subject_system_lbl].isin(["artificial", "kanzi"])]
     time_df = time_df.drop(columns=[pooling_cat_lbl])
     time_df = time_df.rename(columns={"metrics.fitting_time_cost": "Fitting Time"})
@@ -1412,7 +1418,7 @@ def draw_multitask_large_comparison(
     ]
 
     bnp = "$\\tilde{\Pi}^\\text{np}$"
-    bpp = "$\\tilde{\\Pi}^\\text{pp} (HyPerf)$"
+    bpp = "HyPerf ($\\tilde{\\Pi}^\\text{pp}$)"
     bcp = "$\\tilde{\\Pi}^\\text{cp}$"
     melted_df[model_lbl].loc[
         (melted_df[model_lbl] == "Bayesian") & (melted_df[pooling_cat_lbl] == "no")
