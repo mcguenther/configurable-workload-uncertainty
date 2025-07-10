@@ -47,6 +47,8 @@ def remove_multicollinearity_limited(
 
     print("⚡ Fast multicollinearity removal...", flush=True)
 
+    if skip_entirely:
+        return df
     # Drop constant/index columns first
     nunique = df.nunique()
     drop_cols = list(nunique[nunique == 1].index)
@@ -54,8 +56,6 @@ def remove_multicollinearity_limited(
         drop_cols.append("Unnamed: 0")
     df = df.drop(columns=drop_cols, errors="ignore")
     if df.empty:
-        return df
-    if skip_entirely:
         return df
 
     df_sampled = _sample_df(df, max_rows=sample_rows)

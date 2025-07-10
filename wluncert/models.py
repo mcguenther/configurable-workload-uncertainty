@@ -5,10 +5,19 @@ import uuid
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 import time
+
+import os
+
 import numpyro
 
+# Limit the number of JAX host devices to avoid replicating large arrays.
+# JAX can still use all CPU cores through multithreading.
+device_count = int(os.getenv("NUMPYRO_HOST_DEVICE_COUNT", "1"))
+numpyro.set_host_device_count(device_count)
+
+
 # numpyro.enable_x64()
-numpyro.set_host_device_count(50)
+# numpyro.set_host_device_count(50)
 
 from matplotlib import pyplot as plt
 from sklearn.base import BaseEstimator
@@ -218,7 +227,9 @@ class NumPyroRegressor(ExperimentationModelBase):
         # pred = npPredictive(self.model, posterior_samples=posterior_samples, num_samples=n_samples, parallel=True)
         # numpyro currently ignores num_samples if different from number of posterior samples
         pred = npPredictive(
-            self.model, posterior_samples=posterior_samples, parallel=True,
+            self.model,
+            posterior_samples=posterior_samples,
+            parallel=True,
         )
         rng_key_ = random.PRNGKey(0)
         y_pred = pred(rng_key_, *model_args, None)["observations"]
@@ -294,7 +305,9 @@ class NumPyroRegressor(ExperimentationModelBase):
                     "and shape",
                     shape,
                 )
-        original_total_influences = len(self.env_lbls) + len(self.env_lbls) * len(self.feature_names)
+        original_total_influences = len(self.env_lbls) + len(self.env_lbls) * len(
+            self.feature_names
+        )
         p_loo = loo_data.p_loo
         relative_DOF = p_loo / original_total_influences
         DOF_shrinkage = (original_total_influences - p_loo) / original_total_influences
@@ -1855,13 +1868,13 @@ class CompletePoolingEnvModel(ExperimentationModelBase):
         return eval
 
 
-
 from sklearn.base import BaseEstimator
 from sklearn.model_selection import GridSearchCV, LeaveOneOut
 from sklearn.linear_model import Lasso
 
+
 class LassoGridSearchCV(BaseEstimator):
-    def __init__(self, alphas=None, cv=5, scoring='neg_mean_squared_error'):
+    def __init__(self, alphas=None, cv=5, scoring="neg_mean_squared_error"):
         self.alphas = alphas if alphas is not None else [0.001, 0.01, 0.1, 0.5, 1, 10]
         self.cv = cv
         self.scoring = scoring
@@ -1871,13 +1884,13 @@ class LassoGridSearchCV(BaseEstimator):
     def fit(self, X, y):
         # Check the number of samples
         if len(X) <= 3:
-            self.best_estimator_ = Lasso(0.5).fit(X,y)
+            self.best_estimator_ = Lasso(0.5).fit(X, y)
         else:
             # Use standard 5-fold cross-validation
             cv = 3
 
             # Define the hyperparameter grid
-            param_grid = {'alpha': self.alphas}
+            param_grid = {"alpha": self.alphas}
 
             # Create the Lasso grid search
             grid_search = GridSearchCV(Lasso(), param_grid, cv=cv, scoring=self.scoring)
