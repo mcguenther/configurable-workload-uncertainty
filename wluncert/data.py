@@ -827,6 +827,8 @@ class DataAdapterTuxKconfig(DataAdapter):
         cleared_sys_df = cleared_sys_df[
             [*options, self.environment_col_name, *self.nfps]
         ]
+        # replace NaN values with 0 (OpenML data may contain missing entries)
+        cleared_sys_df = cleared_sys_df.fillna(0)
         return cleared_sys_df
 
 
