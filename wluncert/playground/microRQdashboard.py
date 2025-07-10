@@ -1597,13 +1597,13 @@ def draw_multitask_large_comparison(
             st.write("## Plot with legend right 📈")
 
             DEFAULT_SYSTEM_Y_LIMITS = {
-                "dconvert": 17,
-                "batik": 50,
+                "dconvert": 18,
+                "batik": 45,
                 "h2": 20,
                 "jump3r": 80,
                 "xz": 120,
                 "x264": 120,
-                "lrzip": 280,
+                "lrzip": 330,
                 "z3": 950,
                 # "VP9": 200,
             }
