@@ -380,6 +380,10 @@ class Replication:
         self.parent_run_id = None
         self.experiment_name = f"uncertainty-learning-{self.replication_lbl}"
 
+    def _uses_tux_data(self) -> bool:
+        """Return True if any selected dataset is the TuxKconfig dataset."""
+        return any("tuxkconfig" in lbl for lbl in self.data_providers)
+
     def provision_experiment(self, args):
         model_lbl, model_proto, data_lbl, data_set, train_size, rnd = args
         print(
@@ -456,16 +460,17 @@ class Replication:
         ]
         print(f"Starting to provision {len(args_list)} experiments", flush=True)
 
-        # Use joblib for parallelization
-
-        with parallel_backend("multiprocessing", n_jobs=-4):
-            # with parallel_backend("multiprocessing", n_jobs=self.n_jobs):
-            results = Parallel(
-                # n_jobs=-4,
-                verbose=1,
-                # batch_size=150,
-                # return_as="generator_unordered",
-            )(delayed(self.provision_experiment)(args) for args in args_list)
+        # Use joblib for parallelization unless the large tux dataset is used
+        if self._uses_tux_data():
+            # Avoid spawning many processes to reduce temporary disk usage
+            results = [
+                self.provision_experiment(args) for args in tqdm(args_list)
+            ]
+        else:
+            with parallel_backend("multiprocessing", n_jobs=-4):
+                results = Parallel(verbose=1)(
+                    delayed(self.provision_experiment)(args) for args in args_list
+                )
 
         # Flatten the results and organize tasks
         for task_list in results:
@@ -483,7 +488,14 @@ class Replication:
             #     self.handle_task(task)
 
             # Use joblib for task execution with threads
-            Parallel(n_jobs=self.n_jobs, prefer="threads", verbose=10)(
+            task_kwargs = {
+                "n_jobs": self.n_jobs,
+                "prefer": "threads",
+                "verbose": 10,
+            }
+            if self._uses_tux_data():
+                task_kwargs["max_nbytes"] = None
+            Parallel(**task_kwargs)(
                 delayed(self.handle_task)(task) for task in tqdm(tasks[task_type])
             )
 
