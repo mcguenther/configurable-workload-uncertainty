@@ -60,6 +60,13 @@ class MultitaskPlotter(Plotter):
         )
 
         metric = "metrics.mape_overall"
+        style_col = "params.pooling_cat"
+        style_arg = (
+            {"style": style_col}
+            if melted_df[style_col].notna().any()
+            else {}
+        )
+
         plot = sns.relplot(
             data=melted_df,
             x="params.relative_train_size",
@@ -71,8 +78,8 @@ class MultitaskPlotter(Plotter):
             # sharey=False,
             kind="line",
             hue="params.model",
-            style="params.pooling_cat",
             facet_kws={"sharey": False, "sharex": False},
+            **style_arg,
         )
         # setting boundaries that make sense
         plt.tight_layout()
