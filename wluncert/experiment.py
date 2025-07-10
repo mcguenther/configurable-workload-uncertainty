@@ -451,8 +451,6 @@ class Replication:
             self.parent_run_id = run.info.run_id
             print(self.parent_run_id)
 
-        tasks = {key: [] for key in self.experiment_classes}
-
         # Prepare arguments for parallel execution
         args_list = [
             (model_lbl, model_proto, data_lbl, data_set, train_size, rnd)
@@ -463,47 +461,52 @@ class Replication:
         ]
         print(f"Starting to provision {len(args_list)} experiments", flush=True)
 
-        # Use joblib for parallelization unless the large tux dataset is used
         if self._uses_tux_data():
-            # Avoid spawning many processes to reduce temporary disk usage
-            results = [self.provision_experiment(args) for args in tqdm(args_list)]
-        else:
-            with parallel_backend("multiprocessing", n_jobs=-4):
-                results = Parallel(verbose=1)(
-                    delayed(self.provision_experiment)(args) for args in args_list
-                )
-
-        # Flatten the results and organize tasks
-        for task_list in results:
-            for task in task_list:
-                tasks[type(task)].append(task)
-        del results
-
-        print("Provisioned experiments", flush=True)
-
-        random.seed(self.rnds[0])
-        for task_type in tasks:
-            random.shuffle(tasks[task_type])
-            print(f"Planning {self.n_jobs} jobs")
-
-            # for task in tqdm(tasks[task_type]):
-            #     self.handle_task(task)
-
-            # Use joblib for task execution with threads
             task_kwargs = {
                 "n_jobs": self.n_jobs,
                 "prefer": "threads",
                 "verbose": 10,
+                "max_nbytes": None,
             }
-            if self._uses_tux_data():
-                task_kwargs["max_nbytes"] = None
-            Parallel(**task_kwargs)(
-                delayed(self.handle_task)(task) for task in tqdm(tasks[task_type])
-            )
+            for args in tqdm(args_list):
+                task_list = self.provision_experiment(args)
+                random.shuffle(task_list)
+                Parallel(**task_kwargs)(
+                    delayed(self.handle_task)(task) for task in task_list
+                )
+                del task_list
+                gc.collect()
+        else:
+            tasks = {key: [] for key in self.experiment_classes}
+            with parallel_backend("multiprocessing", n_jobs=-4):
+                results = Parallel(verbose=1)(
+                    delayed(self.provision_experiment)(args) for args in args_list
+                )
+            for task_list in results:
+                for task in task_list:
+                    tasks[type(task)].append(task)
+            del results
+
+            print("Provisioned experiments", flush=True)
+
+            random.seed(self.rnds[0])
+            for task_type in tasks:
+                random.shuffle(tasks[task_type])
+                print(f"Planning {self.n_jobs} jobs")
+
+                task_kwargs = {
+                    "n_jobs": self.n_jobs,
+                    "prefer": "threads",
+                    "verbose": 10,
+                }
+                Parallel(**task_kwargs)(
+                    delayed(self.handle_task)(task) for task in tqdm(tasks[task_type])
+                )
+
+            tasks.clear()
+            gc.collect()
 
         print(self.parent_run_id)
-        tasks.clear()
-        gc.collect()
         return self.parent_run_id
 
     def handle_task(self, task: ExperimentTask):
