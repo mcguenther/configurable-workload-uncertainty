@@ -118,6 +118,32 @@ def filter_by_first_unique_value(df, col_name):
 
 
 def embed_pdf(file_path, width=700, height=700):
+    """Embed a PDF in the Streamlit app or provide a download button.
+
+    Streamlit's ``components.html`` has a size limitation for the HTML
+    content. Large PDFs would result in an empty space when trying to
+    embed them directly.  To avoid this issue we fall back to offering a
+    download button for bigger files.
+    """
+
+    if not os.path.exists(file_path):
+        st.error(f"PDF not found: {file_path}")
+        return
+
+    file_size = os.path.getsize(file_path)
+    max_embed_size = 1_000_000  # ~1MB
+
+    if file_size > max_embed_size:
+        with open(file_path, "rb") as pdf_file:
+            st.download_button(
+                label="Download PDF",
+                data=pdf_file.read(),
+                file_name=os.path.basename(file_path),
+                mime="application/pdf",
+            )
+        st.info("PDF preview disabled due to file size")
+        return
+
     with open(file_path, "rb") as pdf_file:
         base64_pdf = base64.b64encode(pdf_file.read()).decode("utf-8")
 
@@ -133,7 +159,7 @@ def embed_pdf(file_path, width=700, height=700):
     }}
     </style>
     <div class="pdf-container">
-        <iframe src="data:application/pdf;base64,{base64_pdf}" type="application/pdf"   ></iframe>
+        <iframe src="data:application/pdf;base64,{base64_pdf}" type="application/pdf"></iframe>
     </div>
     """
     components.html(pdf_display, height=height)
@@ -1643,7 +1669,13 @@ def draw_multitask_large_comparison(
             st.image("temp_plot.png")
 
             with st.expander(label=pdf_label, expanded=False):
-                embed_pdf(tmp_file)
+                with open(tmp_file, "rb") as pdf_file:
+                    st.download_button(
+                        label="Download PDF",
+                        data=pdf_file.read(),
+                        file_name=os.path.basename(tmp_file),
+                        mime="application/pdf",
+                    )
 
 
 def draw_multitask_dashboard(combined_df):
