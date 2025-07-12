@@ -35,6 +35,7 @@ from sklearn.linear_model import Lasso
 from sklearn.preprocessing import PolynomialFeatures
 
 import numpy as np
+import gc
 
 from numpyro.handlers import reparam
 from numpyro.infer.reparam import LocScaleReparam
@@ -961,6 +962,46 @@ class MCMCPartialRobustLassoAdaptiveShrinkage(MCMCPartialRobustLasso):
                 "observations", npdist.Normal(result_arr, right_error), obs=reference_y
             )
         return obs
+
+    def _predict(self, data: List[SingleEnvData]):
+        """Predict in manageable batches if memory usage would be excessive."""
+        X, envs, y = self._internal_data_splitting(data)
+        n_workloads = len(data)
+        envs_int = np.array(envs).astype(int)
+
+        posterior_samples = self.mcmc.get_samples()
+        first_key = next(iter(posterior_samples))
+        n_pred_samples = posterior_samples[first_key].shape[0]
+
+        bytes_per_float = np.dtype(float).itemsize
+        est_bytes = n_pred_samples * len(envs_int) * bytes_per_float
+        max_bytes = 10 * 1024**3
+
+        if est_bytes <= max_bytes:
+            model_args = X, envs, n_workloads
+            preds = self._internal_predict(model_args)
+        else:
+            batch_size = max(1, max_bytes // (n_pred_samples * bytes_per_float))
+            preds_chunks = []
+            start = 0
+            while start < len(envs_int):
+                end = int(min(start + batch_size, len(envs_int)))
+                model_args = (X[start:end], envs[start:end], n_workloads)
+                preds_chunk = self._internal_predict(model_args)
+                preds_chunks.append(preds_chunk)
+                del preds_chunk
+                gc.collect()
+                start = end
+            preds = np.concatenate(preds_chunks, axis=1)
+
+        unstandardized_preds_dict = {int(env_id): [] for env_id in np.unique(envs_int)}
+        for i, env_id in enumerate(envs_int):
+            pred = preds[:, i]
+            unstandardized_preds_dict[env_id].append(pred)
+        return [
+            np.array(unstandardized_preds_dict[d.env_id]) if d is not None else None
+            for d in data
+        ]
 
 
 class MCMCPartialHorseshoe(MCMCMultilevelPartial):
