@@ -1496,7 +1496,7 @@ def draw_multitask_large_comparison(
             for ax in plt.gcf().axes:
                 ax.set_ylabel("")
                 ax.set_yscale("log")
-                ax.set_xticks([0, 1, 2, 3])
+                ax.set_xticks([0, 1, 2])
                 title = ax.get_title()
                 new_title = title.replace("Subject System = ", "")
                 ax.set_title(new_title)
@@ -1545,7 +1545,7 @@ def draw_multitask_large_comparison(
                     upper_pMAPE = 400
                 y_max = min(upper_pMAPE, y_max)
                 ax.set_ylim(0, y_max)
-                ax.set_xticks([0, 1, 2, 3])
+                ax.set_xticks([0, 1, 2])
                 title = ax.get_title()
                 new_title = title.replace("Subject System = ", "")
                 ax.set_title(new_title)
@@ -1637,11 +1637,11 @@ def draw_multitask_large_comparison(
                 facet_kws={"sharey": False, "sharex": True},
                 hue_order=model_order,  # Ensuring the order is applied
                 palette=model_colors,
-                aspect=1.2,
+                aspect=0.8,
                 # height=1.85,
                 height=2.85,
                 col="Subject System",
-                col_wrap=5,
+                col_wrap=3,
                 legend=True,
             )
 
@@ -1651,6 +1651,8 @@ def draw_multitask_large_comparison(
                 system_name = title.replace("Subject System = ", "").strip()
                 system_key = system_name.lower()
                 final_limit = y_max
+                ax.set_xticks([0, 1, 2])
+                ax.set_xlim(0, 2)
                 if apply_base_limits:
                     if system_key in DEFAULT_SYSTEM_Y_LIMITS:
                         final_limit = DEFAULT_SYSTEM_Y_LIMITS[system_key]
@@ -1672,11 +1674,16 @@ def draw_multitask_large_comparison(
                 # y_max = min(upper_pMAPE, y_max)
                 # ax.set_ylim(0, y_max)
                 # ax.set_xticks([0.5,1,3])
-                ax.set_xticks([0, 1, 2, 3])
+                ax.set_xticks([0, 1, 2])
+                ax.set_xlim(0, 2)
                 title = ax.get_title()
                 new_title = title.replace("Subject System = ", "")
                 ax.set_title(new_title)  # , fontsize=16)
                 ax.set_ylabel("")
+                new_lbl = ax.get_xlabel().replace(
+                    "Relative Train Size", "Rel. train size"
+                )
+                ax.set_xlabel(new_lbl)
                 # if ax.legend_:
                 #     ax.legend_.remove()
             fig = plt.gcf()
@@ -1710,17 +1717,18 @@ def draw_multitask_large_comparison(
                 loc="upper left",  # Adjusts legend position relative to the anchor.
                 ncol=1,  # Assumes you want all items in one row; adjust as needed.
                 # bbox_to_anchor=(0.5, -0.0015)  # Centers the legend below the plot. Adjust Y-offset as needed.
-                bbox_to_anchor=(0.91, 0.5),
+                bbox_to_anchor=(0.59, 0.24),
                 **legend_kw_args,
             )
 
             pooling_legend = fig.legend(
                 pooling_padded_handles,
                 pooling_padded_labels,
-                loc="lower left",  # Adjusts legend position relative to the anchor.
+                loc="upper left",  # Adjusts legend position relative to the anchor.
                 ncol=1,  # Assumes you want all items in one row; adjust as needed.
                 # bbox_to_anchor=(0.5, -0.0015)  # Centers the legend below the plot. Adjust Y-offset as needed.
-                bbox_to_anchor=(0.91, 0.5),
+                # bbox_to_anchor=(0.91, 0.5),
+                bbox_to_anchor=(0.34, 0.24),
                 **legend_kw_args,
             )
 
