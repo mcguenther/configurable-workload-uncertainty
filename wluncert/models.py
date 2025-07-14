@@ -327,6 +327,8 @@ class NumPyroRegressor(ExperimentationModelBase):
         return d
 
     def evaluate(self, eval, test_list=None):
+        if self.persist_arviz:
+            self.persist_arviz_data()
         eval.prepare_sample_modes()
         eval.add_mape()
         eval.add_R2()
@@ -336,8 +338,7 @@ class NumPyroRegressor(ExperimentationModelBase):
         bayesian_metrics = self.get_bayes_eval_dict(test_list)
         model_metrics = {**bayesian_metrics, **cost_df}
         eval.add_custom_model_dict(model_metrics)
-        if self.persist_arviz:
-            self.persist_arviz_data()
+
         if self.plot:
             eval.add_custom_pred_eval(self.debug_predictions)
         return eval
