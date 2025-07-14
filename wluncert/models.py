@@ -715,23 +715,36 @@ class MCMCMultilevelPartial(NumPyroRegressor):
         return reparam_config
 
     def _predict(self, data: List[SingleEnvData]):
-        X, envs, y = self._internal_data_splitting(data)
+        X, envs, _ = self._internal_data_splitting(data)
         n_workloads = len(data)
-        model_args = X, envs, n_workloads
         envs_int = np.array(envs).astype(int)
-        preds = self._internal_predict(model_args)
-        # unstandardized_preds = []
+
+        num_options = X.shape[1]
+        if num_options > 1000:
+            batch_size = 50
+            preds_chunks = []
+            start = 0
+            while start < len(envs_int):
+                end = int(min(start + batch_size, len(envs_int)))
+                model_args = (X[start:end], envs[start:end], n_workloads)
+                preds_chunk = self._internal_predict(model_args)
+                preds_chunks.append(preds_chunk)
+                del preds_chunk
+                gc.collect()
+                start = end
+            preds = np.concatenate(preds_chunks, axis=1)
+        else:
+            model_args = X, envs, n_workloads
+            preds = self._internal_predict(model_args)
+
         unstandardized_preds_dict = {int(env_id): [] for env_id in np.unique(envs_int)}
         for i, env_id in enumerate(envs_int):
             pred = preds[:, i]
-            # unstandardized_preds.append(pred)
-            # single_env_data = data[env_id]
             unstandardized_preds_dict[env_id].append(pred)
-        return_list = [
+        return [
             np.array(unstandardized_preds_dict[d.env_id]) if d is not None else None
             for d in data
         ]
-        return return_list
 
     def save_plot(self, mcmc=None, loo=True, lbl=None):
         lbl = lbl or "trace"
