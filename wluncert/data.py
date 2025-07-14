@@ -105,14 +105,14 @@ class SingleEnvData:
         n_train_samples_abs=None,
         n_train_samples_rel_opt_num=None,
         rnd=0,
-        max_train_samples_rel_opt_num=10000,
-        max_test_samples_abs=None,
+        max_train_samples_rel_opt_num=None,
+        max_test_samples_abs=10000,
     ):
         """Return a train/test split.
 
         ``max_train_samples_rel_opt_num`` defines the relative size of the
-        largest training subset used for deriving smaller training sets. By
-        default this value is ``10000``. The test set consists of all samples
+        largest training subset used for deriving smaller training sets.
+        The test set consists of all samples
         that are **not** part of the largest training subset determined by this
         parameter. Smaller training sets are sampled from that largest
         training subset so that every training set is contained in it.
