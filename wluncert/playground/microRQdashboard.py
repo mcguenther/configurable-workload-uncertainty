@@ -1411,6 +1411,29 @@ def draw_multitask_large_comparison(
     st.subheader("Fitting Time Comparison (s)")
     st.dataframe(fit_table)
 
+    if bpp in fit_table.columns:
+        st.subheader("Relative Fitting Time to HyPerf")
+        relative_to_hyperf = fit_table.div(fit_table[bpp], axis=0)
+        st.dataframe(relative_to_hyperf)
+        max_rel_hyperf = (
+            relative_to_hyperf.replace([float("inf"), -float("inf")], float("nan"))
+            .max()
+            .max()
+        )
+        if pd.notna(max_rel_hyperf):
+            st.write(f"Highest relative training time: {max_rel_hyperf:.2f}")
+    if "RF" in fit_table.columns:
+        st.subheader("Relative Fitting Time to RF")
+        relative_to_rf = fit_table.div(fit_table["RF"], axis=0)
+        st.dataframe(relative_to_rf)
+        max_rel_rf = (
+            relative_to_rf.replace([float("inf"), -float("inf")], float("nan"))
+            .max()
+            .max()
+        )
+        if pd.notna(max_rel_rf):
+            st.write(f"Highest relative training time: {max_rel_rf:.2f}")
+
     # Only keep the partial pooling variant for Bayesian models in the large comparison plot
     is_bayesian = melted_df[model_lbl] == "Bayesian"
     unwanted_pooling = ["complete", "no"]
