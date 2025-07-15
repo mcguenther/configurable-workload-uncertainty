@@ -5,6 +5,8 @@ import os
 import re
 import shutil
 import time
+import resource
+import sys
 from datetime import datetime
 from contextlib import ContextDecorator
 from contextlib import contextmanager
@@ -17,7 +19,10 @@ META_FILE = "meta.json"
 METRICS_FILE = "metrics.json"
 PARAMS_FILE = "params.json"
 FOLDER_CHAR_LIMIT = 25
-import arviz as az
+try:
+    import arviz as az
+except Exception:  # pragma: no cover - optional dependency
+    az = None
 
 
 class TaskTracker:
@@ -40,7 +45,9 @@ class TaskTracker:
         self.current_task.log_metrics({key: val})
 
     def start_run(self, run_name=None, nested=True, run_id=None):
-        new_task = LocalTask(name=run_name, path_id=run_id, experiment_id=self.experiment)
+        new_task = LocalTask(
+            name=run_name, path_id=run_id, experiment_id=self.experiment
+        )
         if self.current_task:
             new_task.set_parent(self.current_task)
         self.current_task = new_task
@@ -103,7 +110,9 @@ class ExperimentResult:
 
 
 class RunResult:
-    def __init__(self, experiment: ExperimentResult, path, parent_run: RunResult = None):
+    def __init__(
+        self, experiment: ExperimentResult, path, parent_run: RunResult = None
+    ):
         self.experimen = experiment
         self.path = path
         self.parent = parent_run
@@ -144,7 +153,7 @@ class RunResult:
 
     def get_dict(self, dict_name):
         d_path = os.path.join(self.path, f"{dict_name.replace('.json', '')}.json")
-        with open(d_path, 'r') as file:
+        with open(d_path, "r") as file:
             # print(d_path)
             try:
                 d = json.load(file)
@@ -178,7 +187,9 @@ class LocalTask:
         self.start_time = time.time()
         self.info = TaskInfo(self.path_id)
 
-    def get_task_folder(self, ):
+    def get_task_folder(
+        self,
+    ):
         if self.parent is None:
             experiment_folder = get_experiment_folder(self.experiment_id)
             parent_folder = experiment_folder
@@ -215,7 +226,7 @@ class LocalTask:
             file_name = file_name + ".json"
         out_path = os.path.join(self.get_task_folder(), file_name)
         try:
-            with open(out_path, 'w') as file:
+            with open(out_path, "w") as file:
                 json.dump(d, file, indent=4)
         except Exception as e:
             return f"An error occurred: {e}"
@@ -224,6 +235,12 @@ class LocalTask:
         self.finished = True
         self.end_time = time.time()
         self.time_cost = self.end_time - self.start_time
+        max_rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        if sys.platform == "darwin":
+            max_rss_mb = max_rss_kb / (1024 * 1024)
+        else:
+            max_rss_mb = max_rss_kb / 1024
+        self.metrics.setdefault("max_memory_mb", max_rss_mb)
         self.persist_metas()
         self.persist_misc_dicts()
         persist_metrics = {f"metrics.{key}": val for key, val in self.metrics.items()}
@@ -267,7 +284,7 @@ class TaskInfo:
 
 def get_short_valid_id(input_str):
     # Ersetzen von Nicht-ASCII-Zeichen durch Unterstriche
-    cleaned_str = re.sub(r'[^\x00-\x7F]', '-', input_str)
+    cleaned_str = re.sub(r"[^\x00-\x7F]", "-", input_str)
 
     # Kürzen des Strings auf die ersten 10 Zeichen
     shortened_str = cleaned_str[:FOLDER_CHAR_LIMIT]
