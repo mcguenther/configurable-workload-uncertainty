@@ -13,6 +13,7 @@ import numpyro
 # Limit the number of JAX host devices to avoid replicating large arrays.
 # JAX can still use all CPU cores through multithreading.
 device_count = int(os.getenv("NUMPYRO_HOST_DEVICE_COUNT", "1"))
+device_count = 1
 numpyro.set_host_device_count(device_count)
 
 
@@ -51,6 +52,8 @@ from data import SingleEnvData, WorkloadTrainingDataSet, Preprocessing
 # from wluncert.analysis import ModelEvaluation
 import localflow as mlflow
 from numpyro.distributions import constraints
+from tqdm import tqdm
+
 
 NO_POOLING = "NO_POOLING"
 COMPLETE_POOLING = "COMPLETE_POOLING"
@@ -230,7 +233,8 @@ class NumPyroRegressor(ExperimentationModelBase):
         pred = npPredictive(
             self.model,
             posterior_samples=posterior_samples,
-            parallel=True,
+            # parallel=True,
+            parallel=False,
         )
         rng_key_ = random.PRNGKey(0)
         y_pred = pred(rng_key_, *model_args, None)["observations"]
@@ -440,8 +444,9 @@ class NumPyroRegressor(ExperimentationModelBase):
         return modes
 
     def persist_arviz_data(self):
-        print("saving now!")
+        print("saving now!", flush=True)
         az_data = self.get_arviz_data()
+        os.makedirs("tmp", exist_ok=True)
         tmp_file = f"tmp/arviz_data-{uuid.uuid4()}.netcdf"
         az_data.to_netcdf(filename=tmp_file)
         mlflow_log_artifact(tmp_file)
@@ -722,26 +727,43 @@ class MCMCMultilevelPartial(NumPyroRegressor):
 
         num_options = X.shape[1]
         if num_options > 1000:
-            batch_size = 50
+            print("Using batched prediction", flush=True)
+            batch_size = 100
             preds_chunks = []
-            start = 0
-            while start < len(envs_int):
-                end = int(min(start + batch_size, len(envs_int)))
-                model_args = (X[start:end], envs[start:end], n_workloads)
+
+            # compute how many batches we'll run
+            total_batches = (len(envs_int) + batch_size - 1) // batch_size
+
+            # tqdm on a simple range for start indices
+            for batch_start in tqdm(
+                range(0, len(envs_int), batch_size),
+                total=total_batches,
+                desc="Predicting batches",
+            ):
+                batch_end = min(batch_start + batch_size, len(envs_int))
+                model_args = (
+                    X[batch_start:batch_end],
+                    envs[batch_start:batch_end],
+                    n_workloads,
+                )
                 preds_chunk = self._internal_predict(model_args)
                 preds_chunks.append(preds_chunk)
+                # free memory
                 del preds_chunk
                 gc.collect()
-                start = end
+
+            # concatenate along the workload axis
             preds = np.concatenate(preds_chunks, axis=1)
         else:
             model_args = X, envs, n_workloads
             preds = self._internal_predict(model_args)
 
+        # rebuild per-environment predictions
         unstandardized_preds_dict = {int(env_id): [] for env_id in np.unique(envs_int)}
         for i, env_id in enumerate(envs_int):
             pred = preds[:, i]
             unstandardized_preds_dict[env_id].append(pred)
+
         return [
             np.array(unstandardized_preds_dict[d.env_id]) if d is not None else None
             for d in data
@@ -976,46 +998,6 @@ class MCMCPartialRobustLassoAdaptiveShrinkage(MCMCPartialRobustLasso):
                 "observations", npdist.Normal(result_arr, right_error), obs=reference_y
             )
         return obs
-
-    def _predict(self, data: List[SingleEnvData]):
-        """Predict in manageable batches if memory usage would be excessive."""
-        X, envs, y = self._internal_data_splitting(data)
-        n_workloads = len(data)
-        envs_int = np.array(envs).astype(int)
-
-        posterior_samples = self.mcmc.get_samples()
-        first_key = next(iter(posterior_samples))
-        n_pred_samples = posterior_samples[first_key].shape[0]
-
-        bytes_per_float = np.dtype(float).itemsize
-        est_bytes = n_pred_samples * len(envs_int) * bytes_per_float
-        max_bytes = 10 * 1024**3
-
-        if est_bytes <= max_bytes:
-            model_args = X, envs, n_workloads
-            preds = self._internal_predict(model_args)
-        else:
-            batch_size = max(1, max_bytes // (n_pred_samples * bytes_per_float))
-            preds_chunks = []
-            start = 0
-            while start < len(envs_int):
-                end = int(min(start + batch_size, len(envs_int)))
-                model_args = (X[start:end], envs[start:end], n_workloads)
-                preds_chunk = self._internal_predict(model_args)
-                preds_chunks.append(preds_chunk)
-                del preds_chunk
-                gc.collect()
-                start = end
-            preds = np.concatenate(preds_chunks, axis=1)
-
-        unstandardized_preds_dict = {int(env_id): [] for env_id in np.unique(envs_int)}
-        for i, env_id in enumerate(envs_int):
-            pred = preds[:, i]
-            unstandardized_preds_dict[env_id].append(pred)
-        return [
-            np.array(unstandardized_preds_dict[d.env_id]) if d is not None else None
-            for d in data
-        ]
 
 
 class MCMCPartialHorseshoe(MCMCMultilevelPartial):
