@@ -16,6 +16,7 @@ from fractions import Fraction
 import streamlit.components.v1 as components
 import base64
 from matplotlib.lines import Line2D
+import numpy as np
 
 pdf_label = "PDF download"
 
@@ -703,7 +704,7 @@ def draw_multitask_paper_plot(
                 new_title = title.replace("Subject System = ", "")
                 ax.set_title(new_title, fontsize=20)
                 ax.set_ylabel("")
-                ax.set_xlabel("Rel. Train Size", fontsize=20)
+                ax.set_xlabel("Rel. train size", fontsize=20)
                 # if ax.legend_:
                 #     ax.legend_.remove()
             fig = plt.gcf()
@@ -1558,7 +1559,8 @@ def draw_multitask_large_comparison(
             pooling_padded_handles = [*handles[:5]]
             pooling_padded_labels = [*labels[:5]]
 
-            pooling_padded_labels[0] = "Model"
+            pooling_padded_labels[0] = "Model:"
+            model_padded_labels[0] = "Pooling:"
 
             legend_kw_args = {
                 "frameon": False,
@@ -1603,9 +1605,10 @@ def draw_multitask_large_comparison(
                 "jump3r": 80,
                 "xz": 120,
                 "x264": 120,
-                "lrzip": 330,
-                "z3": 950,
-                # "VP9": 200,
+                "lrzip": 390,
+                "z3": 800,
+                "VP9": 180,
+                "x265": 170,
             }
             # Prepare y-axis limit configuration
             systems_available = sorted(plot_df_filtered["Subject System"].unique())
@@ -1635,13 +1638,15 @@ def draw_multitask_large_comparison(
                 # style_order=["MAPE", "MAPEci"],
                 style_order=["complete", "partial", "no"],
                 facet_kws={"sharey": False, "sharex": True},
+                # facet_kws={"sharey": False, "sharex": True},
                 hue_order=model_order,  # Ensuring the order is applied
                 palette=model_colors,
-                aspect=0.8,
+                aspect=0.85,
                 # height=1.85,
-                height=2.85,
+                # height=2.95,
+                height=2.75,
                 col="Subject System",
-                col_wrap=3,
+                col_wrap=4,
                 legend=True,
             )
 
@@ -1651,8 +1656,8 @@ def draw_multitask_large_comparison(
                 system_name = title.replace("Subject System = ", "").strip()
                 system_key = system_name.lower()
                 final_limit = y_max
-                ax.set_xticks([0, 1, 2])
                 ax.set_xlim(0, 2)
+                ax.set_xticks([0, 1, 2])
                 if apply_base_limits:
                     if system_key in DEFAULT_SYSTEM_Y_LIMITS:
                         final_limit = DEFAULT_SYSTEM_Y_LIMITS[system_key]
@@ -1674,8 +1679,8 @@ def draw_multitask_large_comparison(
                 # y_max = min(upper_pMAPE, y_max)
                 # ax.set_ylim(0, y_max)
                 # ax.set_xticks([0.5,1,3])
-                ax.set_xticks([0, 1, 2])
-                ax.set_xlim(0, 2)
+                # ax.set_xticks([0, 1, 2])
+                # ax.set_xlim(0, 2)
                 title = ax.get_title()
                 new_title = title.replace("Subject System = ", "")
                 ax.set_title(new_title)  # , fontsize=16)
@@ -1690,6 +1695,13 @@ def draw_multitask_large_comparison(
             #     fig.canvas.draw()
             #     time.sleep(0.1)
 
+            axes = list(plot.axes.flat)
+            n_cols = 4
+
+            # every axis except the last n_cols lives off the bottom row
+            for ax in axes[:-n_cols]:
+                ax.tick_params(labelbottom=True)
+
             handles, labels = plot.axes[0].get_legend_handles_labels()
             # st.write(labels)
             model_padded_handles = [*handles[5:]]
@@ -1699,7 +1711,8 @@ def draw_multitask_large_comparison(
 
             # padded_handles = [*handles[6:], None, None, None, *handles[:6]]
             # padded_labels =[*labels[6:], None ," ", None, *labels[:6]]
-            pooling_padded_labels[0] = "Model"
+            pooling_padded_labels[0] = "Model:"
+            model_padded_labels[0] = "Pooling:"
 
             legend_kw_args = {
                 "frameon": False,
@@ -1711,24 +1724,24 @@ def draw_multitask_large_comparison(
             }
 
             plot._legend.remove()
-            model_legend = fig.legend(
+            pooling_legend = fig.legend(
                 model_padded_handles,
                 model_padded_labels,
                 loc="upper left",  # Adjusts legend position relative to the anchor.
                 ncol=1,  # Assumes you want all items in one row; adjust as needed.
                 # bbox_to_anchor=(0.5, -0.0015)  # Centers the legend below the plot. Adjust Y-offset as needed.
-                bbox_to_anchor=(0.59, 0.24),
+                bbox_to_anchor=(0.65, 0.32),
                 **legend_kw_args,
             )
 
-            pooling_legend = fig.legend(
+            model_legend = fig.legend(
                 pooling_padded_handles,
                 pooling_padded_labels,
                 loc="upper left",  # Adjusts legend position relative to the anchor.
                 ncol=1,  # Assumes you want all items in one row; adjust as needed.
                 # bbox_to_anchor=(0.5, -0.0015)  # Centers the legend below the plot. Adjust Y-offset as needed.
                 # bbox_to_anchor=(0.91, 0.5),
-                bbox_to_anchor=(0.34, 0.24),
+                bbox_to_anchor=(0.44, 0.32),
                 **legend_kw_args,
             )
 
