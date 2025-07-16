@@ -820,6 +820,9 @@ class DataAdapterTuxKconfig(DataAdapter):
         self,
         cleared_sys_df,
     ):
+        # Replace missing values with 0 to avoid errors in models that
+        # cannot handle NaNs (e.g., RandomForestRegressor).
+        cleared_sys_df = cleared_sys_df.fillna(0)
         cleared_sys_df = self.factorize_workload_col(cleared_sys_df)
         all_cols = cleared_sys_df.columns
         middle_cols = [self.environment_col_name]
