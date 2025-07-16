@@ -752,6 +752,140 @@ def draw_multitask_paper_plot(
             with st.expander(label=pdf_label, expanded=False):
                 embed_pdf(tmp_file)
 
+            # Additional large comparison style plot with four columns
+            st.write("## Large Comparison Style Plot 📈")
+            pdf_file_name = "paper-large-comparison.pdf"
+
+            DEFAULT_SYSTEM_Y_LIMITS = {
+                "dconvert": 18,
+                "batik": 45,
+                "h2": 20,
+                "jump3r": 80,
+                "xz": 120,
+                "x264": 120,
+                "lrzip": 390,
+                "z3": 800,
+                "VP9": 180,
+                "x265": 170,
+            }
+
+            systems_available = sorted(plot_df_filtered["Subject System"].unique())
+            with st.expander("Y-axis limits", expanded=False):
+                apply_base_limits = st.checkbox(
+                    "Apply baseline system limits",
+                    value=True,
+                    key="paper_base_y_lim",
+                )
+                apply_custom_limits = st.checkbox(
+                    "Override with custom per-system limits",
+                    value=False,
+                    key="paper_custom_y_lim",
+                )
+                custom_limits = {}
+                for sys in systems_available:
+                    default_val = DEFAULT_SYSTEM_Y_LIMITS.get(sys.lower())
+                    custom_limits[sys.lower()] = st.number_input(
+                        f"{sys} max",
+                        value=float(default_val) if default_val else 0.0,
+                        key=f"limit_{sys}",
+                    )
+
+            plot = sns.relplot(
+                data=plot_df_filtered,
+                x=relative_train_size_lbl,
+                y="Value",
+                kind="line",
+                hue="Model",
+                style="Pooling",
+                style_order=["complete", "partial", "no"],
+                facet_kws={"sharey": False, "sharex": True},
+                hue_order=model_order,
+                palette=model_colors,
+                aspect=0.85,
+                height=2.75,
+                col="Subject System",
+                col_wrap=4,
+                legend=True,
+            )
+
+            for ax in plt.gcf().axes:
+                title = ax.get_title()
+                _, y_max = ax.get_ylim()
+                system_name = title.replace("Subject System = ", "").strip()
+                system_key = system_name.lower()
+                final_limit = y_max
+                ax.set_xlim(0, 2)
+                ax.set_xticks([0, 1, 2])
+                if apply_base_limits and system_key in DEFAULT_SYSTEM_Y_LIMITS:
+                    final_limit = DEFAULT_SYSTEM_Y_LIMITS[system_key]
+                if apply_custom_limits:
+                    user_limit = custom_limits.get(system_key)
+                    if user_limit and user_limit > 0:
+                        if final_limit == y_max:
+                            final_limit = user_limit
+                        else:
+                            final_limit = min(final_limit, user_limit)
+                if y_max > final_limit:
+                    ax.set_ylim(0, final_limit)
+                new_title = title.replace("Subject System = ", "")
+                ax.set_title(new_title)
+                ax.set_ylabel("")
+                new_lbl = ax.get_xlabel().replace(
+                    "Relative Train Size", "Rel. train size"
+                )
+                ax.set_xlabel(new_lbl)
+
+            fig = plt.gcf()
+
+            axes = list(plot.axes.flat)
+            n_cols = 4
+            for ax in axes[:-n_cols]:
+                ax.tick_params(labelbottom=True)
+
+            handles, labels = plot.axes[0].get_legend_handles_labels()
+            model_padded_handles = [*handles[5:]]
+            model_padded_labels = [*labels[5:]]
+            pooling_padded_handles = [*handles[:5]]
+            pooling_padded_labels = [*labels[:5]]
+            pooling_padded_labels[0] = "Model:"
+            model_padded_labels[0] = "Pooling:"
+
+            legend_kw_args = {"frameon": False, "prop": {"weight": "normal"}}
+
+            plot._legend.remove()
+            pooling_legend = fig.legend(
+                model_padded_handles,
+                model_padded_labels,
+                loc="upper left",
+                ncol=1,
+                bbox_to_anchor=(0.65, 0.32),
+                **legend_kw_args,
+            )
+            model_legend = fig.legend(
+                pooling_padded_handles,
+                pooling_padded_labels,
+                loc="upper left",
+                ncol=1,
+                bbox_to_anchor=(0.44, 0.32),
+                **legend_kw_args,
+            )
+
+            fig.add_artist(pooling_legend)
+            fig.add_artist(model_legend)
+
+            tmp_file = pdf_file_name
+            plt.savefig(tmp_file, bbox_inches="tight")
+            fig.savefig("temp_plot.png", bbox_inches="tight", dpi=300)
+            st.image("temp_plot.png")
+
+            with open(tmp_file, "rb") as pdf_file:
+                st.download_button(
+                    label="Download PDF",
+                    data=pdf_file.read(),
+                    file_name=os.path.basename(tmp_file),
+                    mime="application/pdf",
+                )
+
             time.sleep(0.2)
 
             st.write("## Plot with legend right")
