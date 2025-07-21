@@ -754,7 +754,7 @@ def draw_multitask_paper_plot(
 
             # Additional large comparison style plot with four columns
             st.write("## Large Comparison Style Plot 📈")
-            pdf_file_name = "paper-large-comparison.pdf"
+            pdf_file_name = "paper-pooling-comp-vert.pdf"
 
             DEFAULT_SYSTEM_Y_LIMITS = {
                 "dconvert": 18,
@@ -814,8 +814,8 @@ def draw_multitask_paper_plot(
                 system_name = title.replace("Subject System = ", "").strip()
                 system_key = system_name.lower()
                 final_limit = y_max
-                ax.set_xlim(0, 2)
-                ax.set_xticks([0, 1, 2])
+                ax.set_xlim(0, 3)
+                ax.set_xticks([0, 1, 2, 3])
                 if apply_base_limits and system_key in DEFAULT_SYSTEM_Y_LIMITS:
                     final_limit = DEFAULT_SYSTEM_Y_LIMITS[system_key]
                 if apply_custom_limits:
@@ -843,22 +843,24 @@ def draw_multitask_paper_plot(
                 ax.tick_params(labelbottom=True)
 
             handles, labels = plot.axes[0].get_legend_handles_labels()
-            model_padded_handles = [*handles[5:]]
-            model_padded_labels = [*labels[5:]]
-            pooling_padded_handles = [*handles[:5]]
-            pooling_padded_labels = [*labels[:5]]
+            split_idx = 6
+            model_padded_handles = [*handles[6:]]
+            model_padded_labels = [*labels[split_idx:]]
+            pooling_padded_handles = [*handles[:split_idx]]
+            pooling_padded_labels = [*labels[:split_idx]]
             pooling_padded_labels[0] = "Model:"
             model_padded_labels[0] = "Pooling:"
 
             legend_kw_args = {"frameon": False, "prop": {"weight": "normal"}}
 
             plot._legend.remove()
+            height_val = 0.34
             pooling_legend = fig.legend(
                 model_padded_handles,
                 model_padded_labels,
                 loc="upper left",
                 ncol=1,
-                bbox_to_anchor=(0.65, 0.32),
+                bbox_to_anchor=(0.65, height_val),
                 **legend_kw_args,
             )
             model_legend = fig.legend(
@@ -866,7 +868,7 @@ def draw_multitask_paper_plot(
                 pooling_padded_labels,
                 loc="upper left",
                 ncol=1,
-                bbox_to_anchor=(0.44, 0.32),
+                bbox_to_anchor=(0.48, height_val),
                 **legend_kw_args,
             )
 
