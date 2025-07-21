@@ -726,9 +726,9 @@ class MCMCMultilevelPartial(NumPyroRegressor):
         envs_int = np.array(envs).astype(int)
 
         num_options = X.shape[1]
-        if num_options > 1000:
+        if False and num_options > 1000:
             print("Using batched prediction", flush=True)
-            batch_size = 100
+            batch_size = 200
             preds_chunks = []
 
             # compute how many batches we'll run
